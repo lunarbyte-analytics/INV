@@ -1,4 +1,4 @@
-from typing import Optional, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, date
 import sqlite3
 from ..db import tx
@@ -106,7 +106,21 @@ def get_invoice_list():
                 c.OrganizationId  AS CustomerId,
                 co.OrganizationId AS CompanyId,
                 COALESCE(NULLIF(TRIM(c.Name), ''),  'Org ' || c.OrganizationId)  AS CustomerName,
-                COALESCE(NULLIF(TRIM(co.Name), ''), 'Org ' || co.OrganizationId) AS CompanyName
+                COALESCE(NULLIF(TRIM(co.Name), ''), 'Org ' || co.OrganizationId) AS CompanyName,
+                (
+                    SELECT k.ReferenceNumber
+                    FROM InvoiceKsefSubmission k
+                    WHERE k.InvoiceId = i.InvoiceId
+                    ORDER BY k.SentAt DESC, k.InvoiceKsefSubmissionId DESC
+                    LIMIT 1
+                ) AS KsefReferenceNumber,
+                (
+                    SELECT k.SentAt
+                    FROM InvoiceKsefSubmission k
+                    WHERE k.InvoiceId = i.InvoiceId
+                    ORDER BY k.SentAt DESC, k.InvoiceKsefSubmissionId DESC
+                    LIMIT 1
+                ) AS KsefSentAt
             FROM Invoice i
             LEFT JOIN Status s        ON s.StatusId        = i.StatusId
             LEFT JOIN Organization c  ON c.OrganizationId  = i.CustomerId
@@ -221,3 +235,44 @@ def delete_detail(detail_id: int) -> bool:
         cur = conn.cursor()
         cur.execute("DELETE FROM InvoiceDetail WHERE InvoiceDetailId = ?;", (detail_id,))
         return cur.rowcount > 0
+
+
+# --- KSeF (zapis wysyłek) ---
+
+def record_ksef_submission(
+    invoice_id: int,
+    reference_number: str,
+    *,
+    sent_at_iso: str | None = None,
+) -> int:
+    """Zapis udanej wysyłki do KSeF (numer referencyjny dokumentu z API)."""
+    ref = (reference_number or "").strip()
+    if not ref:
+        raise ValueError("reference_number nie może być pusty.")
+    when = sent_at_iso or _now_iso()
+    with tx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO InvoiceKsefSubmission (InvoiceId, ReferenceNumber, SentAt)
+            VALUES (?, ?, ?);
+            """,
+            (invoice_id, ref, when),
+        )
+        return int(cur.lastrowid)
+
+
+def get_ksef_submissions_for_invoice(invoice_id: int) -> List[Dict[str, Any]]:
+    """Wszystkie zapisane wysyłki KSeF dla faktury (od najnowszej)."""
+    with tx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT InvoiceKsefSubmissionId, InvoiceId, ReferenceNumber, SentAt
+            FROM InvoiceKsefSubmission
+            WHERE InvoiceId = ?
+            ORDER BY SentAt DESC, InvoiceKsefSubmissionId DESC;
+            """,
+            (invoice_id,),
+        )
+        return [dict(r) for r in cur.fetchall()]
