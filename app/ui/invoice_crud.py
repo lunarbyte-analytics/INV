@@ -8,7 +8,8 @@ from ..models.invoice import (
     get_payment_methods, get_statuses, get_invoice_types,
     get_organizations, get_services,
     create_invoice, update_invoice, delete_invoice,
-    get_invoice_full, add_detail, update_detail, delete_detail
+    get_invoice_full, add_detail, update_detail, delete_detail,
+    get_ksef_submissions_for_invoice,
 )
 
 ISO_FMT = "%Y-%m-%d"
@@ -134,6 +135,17 @@ class InvoiceCrud(tk.Toplevel):
         ttk.Label(frm, text="Termin płat.:").grid(row=3, column=4, sticky=tk.E, padx=PADX, pady=PADY)
         ttk.Entry(frm, textvariable=self.var_payment_date, width=12)\
             .grid(row=3, column=5, sticky="w", padx=PADX, pady=PADY)
+
+        self._frm_ksef = ttk.LabelFrame(self, text="KSeF — historia wysyłek (API)")
+        self._frm_ksef.pack(fill=tk.X, padx=10, pady=(0, 10))
+        self._txt_ksef = tk.Text(
+            self._frm_ksef,
+            height=4,
+            wrap=tk.WORD,
+            state="disabled",
+            font=("Segoe UI", 9),
+        )
+        self._txt_ksef.pack(fill=tk.X, padx=8, pady=8)
 
         # Przyciski
         btns = ttk.Frame(self)
@@ -270,6 +282,32 @@ class InvoiceCrud(tk.Toplevel):
         # table
         for i in self.tree_details.get_children():
             self.tree_details.delete(i)
+        self._refresh_ksef_panel(None)
+
+    def _refresh_ksef_panel(self, invoice_id: Optional[int] = None):
+        if not hasattr(self, "_txt_ksef"):
+            return
+        self._txt_ksef.configure(state="normal")
+        self._txt_ksef.delete("1.0", tk.END)
+        if invoice_id is None:
+            self._txt_ksef.insert(
+                "1.0",
+                "Brak powiązanych wysyłek KSeF (zapis w bazie po udanym „Wyślij do KSeF” z listy faktur).",
+            )
+        else:
+            rows = get_ksef_submissions_for_invoice(invoice_id)
+            if not rows:
+                self._txt_ksef.insert("1.0", "Brak zapisów wysyłki KSeF dla tej faktury.")
+            else:
+                lines = []
+                for row in rows:
+                    ref = row["ReferenceNumber"]
+                    sat = row["SentAt"] or ""
+                    if "T" in sat:
+                        sat = sat.replace("T", " ", 1)[:19]
+                    lines.append(f"{sat} — {ref}")
+                self._txt_ksef.insert("1.0", "\n".join(lines))
+        self._txt_ksef.configure(state="disabled")
 
     def _set_defaults_if_available(self):
         if self.cb_company["values"]:
@@ -366,6 +404,7 @@ class InvoiceCrud(tk.Toplevel):
         # Detale -> tabela
         print(f"[DEBUG] load_invoice: details rows = {len(details)} for id={invoice_id}")
         self._fill_details_table(details)
+        self._refresh_ksef_panel(invoice_id)
 
     def on_new(self):
         """Przygotuj czysty formularz."""
@@ -393,6 +432,7 @@ class InvoiceCrud(tk.Toplevel):
                     payment_date=self.var_payment_date.get().strip() or None,
                 )
                 self.var_invoice_id.set(str(new_id))
+                self._refresh_ksef_panel(new_id)
                 messagebox.showinfo("Sukces", f"Utworzono fakturę (ID={new_id}).")
             else:
                 # UPDATE
@@ -412,6 +452,7 @@ class InvoiceCrud(tk.Toplevel):
                 )
                 if ok:
                     messagebox.showinfo("Sukces", "Zapisano zmiany.")
+                    self._refresh_ksef_panel(inv_id)
                 else:
                     messagebox.showwarning("Uwaga", "Brak zmian lub faktura nie istnieje.")
         except Exception as e:
