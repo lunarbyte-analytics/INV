@@ -1,0 +1,8 @@
+#!/bin/sh
+# Wymaga niepustego opisu commita (ignoruje linie zaczynające się od #).
+if ! grep -v '^[[:space:]]*#' "$1" | grep -q '[^[:space:]]'; then
+  echo ""
+  echo "Commit odrzucony: wpisz niepusty komunikat (Message) przed zatwierdzeniem."
+  exit 1
+fi
+exit 0
