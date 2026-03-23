@@ -1,0 +1,506 @@
+<xsd:element name="Fa">
+					<xsd:annotation>
+						<xsd:documentation>Na podstawie art. 106a - 106q ustawy. Pola dotyczące wartości sprzedaży i podatku wypełnia się w walucie, w której wystawiono fakturę, z wyjątkiem pól dotyczących podatku przeliczonego zgodnie z przepisami Działu VI w związku z art. 106e ust. 11 ustawy. W przypadku wystawienia faktury korygującej, wypełnia się wszystkie pola wg stanu po korekcie, a pola dotyczące podstaw opodatkowania, podatku oraz należności ogółem wypełnia się poprzez różnicę</xsd:documentation>
+					</xsd:annotation>
+					<xsd:complexType>
+						<xsd:sequence>
+							<xsd:element name="KodWaluty" type="tns:TKodWaluty">
+								<xsd:annotation>
+									<xsd:documentation>Trzyliterowy kod waluty (ISO 4217)</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:element name="P_1" type="tns:TDataT">
+								<xsd:annotation>
+									<xsd:documentation>Data wystawienia, z zastrzeżeniem art. 106na ust. 1 ustawy</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:element name="P_1M" type="tns:TZnakowy" minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Miejsce wystawienia faktury</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:element name="P_2" type="tns:TZnakowy">
+								<xsd:annotation>
+									<xsd:documentation>Kolejny numer faktury, nadany w ramach jednej lub więcej serii, który w sposób jednoznaczny identyfikuje fakturę</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:element name="WZ" type="tns:TZnakowy" minOccurs="0" maxOccurs="1000">
+								<xsd:annotation>
+									<xsd:documentation>Numery dokumentów magazynowych WZ (wydanie na zewnątrz) związane z fakturą</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:choice minOccurs="0">
+								<xsd:element name="P_6" type="tns:TDataT">
+									<xsd:annotation>
+										<xsd:documentation>Data dokonania lub zakończenia dostawy towarów lub wykonania usługi lub data otrzymania zapłaty, o której mowa w art. 106b ust. 1 pkt 4 ustawy, o ile taka data jest określona i różni się od daty wystawienia faktury. Pole wypełnia się w przypadku, gdy dla wszystkich pozycji faktury data jest wspólna</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+								<xsd:element name="OkresFa">
+									<xsd:annotation>
+										<xsd:documentation>Okres, którego dotyczy faktura w przypadkach, o których mowa w art. 19a ust. 3 zdanie pierwsze i ust. 4 oraz ust. 5 pkt 4 ustawy</xsd:documentation>
+									</xsd:annotation>
+									<xsd:complexType>
+										<xsd:sequence>
+											<xsd:element name="P_6_Od" type="tns:TDataT">
+												<xsd:annotation>
+													<xsd:documentation>Data początkowa okresu, którego dotyczy faktura</xsd:documentation>
+												</xsd:annotation>
+											</xsd:element>
+											<xsd:element name="P_6_Do" type="tns:TDataT">
+												<xsd:annotation>
+													<xsd:documentation>Data końcowa okresu, którego dotyczy faktura - data dokonania lub zakończenia dostawy towarów lub wykonania usługi</xsd:documentation>
+												</xsd:annotation>
+											</xsd:element>
+										</xsd:sequence>
+									</xsd:complexType>
+								</xsd:element>
+							</xsd:choice>
+							<xsd:sequence minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Pola wypełniane w przypadku wystąpienia na fakturze sprzedaży objętej stawką podstawową - aktualnie 23% albo 22%, z wyłączeniem procedury marży</xsd:documentation>
+								</xsd:annotation>
+								<xsd:element name="P_13_1" type="tns:TKwotowy">
+									<xsd:annotation>
+										<xsd:documentation>Suma wartości sprzedaży netto ze stawką podstawową - aktualnie 23% albo 22%. W przypadku faktur zaliczkowych, kwota zaliczki netto. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+								<xsd:element name="P_14_1" type="tns:TKwotowy">
+									<xsd:annotation>
+										<xsd:documentation>Kwota podatku od sumy wartości sprzedaży netto objętej stawką podstawową - aktualnie 23% albo 22%. W przypadku faktur zaliczkowych, kwota podatku wyliczona według wzoru, o którym mowa w art. 106f ust. 1 pkt 3 ustawy. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+								<xsd:element name="P_14_1W" type="tns:TKwotowy" minOccurs="0">
+									<xsd:annotation>
+										<xsd:documentation>W przypadku gdy faktura jest wystawiona w walucie obcej, kwota podatku od sumy wartości sprzedaży netto objętej stawką podstawową, przeliczona zgodnie z przepisami Działu VI w związku z art. 106e ust. 11 ustawy - aktualnie 23% albo 22%. W przypadku faktur zaliczkowych, kwota podatku wyliczona według wzoru, o którym mowa w art. 106f ust. 1 pkt 3 ustawy. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+							</xsd:sequence>
+							<xsd:sequence minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Pola wypełniane w przypadku wystąpienia na fakturze sprzedaży objętej stawką obniżoną pierwszą - aktualnie 8 % albo 7%, z wyłączeniem procedury marży</xsd:documentation>
+								</xsd:annotation>
+								<xsd:element name="P_13_2" type="tns:TKwotowy">
+									<xsd:annotation>
+										<xsd:documentation>Suma wartości sprzedaży netto objętej stawką obniżoną pierwszą - aktualnie 8 % albo 7%. W przypadku faktur zaliczkowych, kwota zaliczki netto. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+								<xsd:element name="P_14_2" type="tns:TKwotowy">
+									<xsd:annotation>
+										<xsd:documentation>Kwota podatku od sumy wartości sprzedaży netto objętej stawką obniżoną pierwszą - aktualnie 8% albo 7%. W przypadku faktur zaliczkowych, kwota podatku wyliczona według wzoru, o którym mowa w art. 106f ust. 1 pkt 3 ustawy. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+								<xsd:element name="P_14_2W" type="tns:TKwotowy" minOccurs="0">
+									<xsd:annotation>
+										<xsd:documentation>W przypadku gdy faktura jest wystawiona w walucie obcej, kwota podatku od sumy wartości sprzedaży netto objętej stawką obniżoną, przeliczona zgodnie z przepisami Działu VI w związku z art. 106e ust. 11 ustawy - aktualnie 8% albo 7%. W przypadku faktur zaliczkowych, kwota podatku wyliczona według wzoru, o którym mowa w art. 106f ust. 1 pkt 3 ustawy. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+							</xsd:sequence>
+							<xsd:sequence minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Pola wypełniane w przypadku wystąpienia na fakturze sprzedaży objętej stawką obniżoną drugą - aktualnie 5%, z wyłączeniem procedury marży</xsd:documentation>
+								</xsd:annotation>
+								<xsd:element name="P_13_3" type="tns:TKwotowy">
+									<xsd:annotation>
+										<xsd:documentation>Suma wartości sprzedaży netto objętej stawką obniżoną drugą - aktualnie 5%. W przypadku faktur zaliczkowych, kwota zaliczki netto. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+								<xsd:element name="P_14_3" type="tns:TKwotowy">
+									<xsd:annotation>
+										<xsd:documentation>Kwota podatku od sumy wartości sprzedaży netto objętej stawką obniżoną drugą - aktualnie 5%. W przypadku faktur zaliczkowych, kwota podatku wyliczona według wzoru, o którym mowa w art. 106f ust. 1 pkt 3 ustawy. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+								<xsd:element name="P_14_3W" type="tns:TKwotowy" minOccurs="0">
+									<xsd:annotation>
+										<xsd:documentation>W przypadku gdy faktura jest wystawiona w walucie obcej, kwota podatku od sumy wartości sprzedaży netto objętej stawką obniżoną drugą, przeliczona zgodnie z przepisami Działu VI w związku z art. 106e ust. 11 ustawy - aktualnie 5%. W przypadku faktur zaliczkowych, kwota podatku wyliczona według wzoru, o którym mowa w art. 106f ust. 1 pkt 3 ustawy. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+							</xsd:sequence>
+							<xsd:sequence minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Pola wypełniane w przypadku wystąpienia na fakturze sprzedaży objętej stawką obniżoną trzecią – ryczałtem dla taksówek osobowych</xsd:documentation>
+								</xsd:annotation>
+								<xsd:element name="P_13_4" type="tns:TKwotowy">
+									<xsd:annotation>
+										<xsd:documentation>Suma wartości sprzedaży netto objętej ryczałtem dla taksówek osobowych. W przypadku faktur zaliczkowych, kwota zaliczki netto. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+								<xsd:element name="P_14_4" type="tns:TKwotowy">
+									<xsd:annotation>
+										<xsd:documentation>Kwota podatku od sumy wartości sprzedaży netto w przypadku ryczałtu dla taksówek osobowych. W przypadku faktur zaliczkowych, kwota podatku wyliczona według wzoru, o którym mowa w art. 106f ust. 1 pkt 3 ustawy. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+								<xsd:element name="P_14_4W" type="tns:TKwotowy" minOccurs="0">
+									<xsd:annotation>
+										<xsd:documentation>W przypadku gdy faktura jest wystawiona w walucie obcej, kwota podatku ryczałtu dla taksówek osobowych, przeliczona zgodnie z przepisami Działu VI w związku z art. 106e ust. 11 ustawy. W przypadku faktur zaliczkowych, kwota podatku wyliczona według wzoru, o którym mowa w art. 106f ust. 1 pkt 3 ustawy. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+							</xsd:sequence>
+							<xsd:sequence minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Pola wypełniane w przypadku wystąpienia na fakturze sprzedaży w procedurze szczególnej, o której mowa w dziale XII w rozdziale 6a ustawy</xsd:documentation>
+								</xsd:annotation>
+								<xsd:element name="P_13_5" type="tns:TKwotowy">
+									<xsd:annotation>
+										<xsd:documentation>Suma wartości sprzedaży netto w przypadku procedury szczególnej, o której mowa w dziale XII w rozdziale 6a ustawy. W przypadku faktur zaliczkowych, kwota zaliczki netto. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+								<xsd:element name="P_14_5" type="tns:TKwotowy" minOccurs="0">
+									<xsd:annotation>
+										<xsd:documentation>Kwota podatku od wartości dodanej w przypadku procedury szczególnej, o której mowa w dziale XII w rozdziale 6a ustawy. W przypadku faktur zaliczkowych, kwota podatku wyliczona według wzoru, o którym mowa w art. 106f ust. 1 pkt 3 ustawy. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+							</xsd:sequence>
+							<xsd:element name="P_13_6_1" type="tns:TKwotowy" minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Suma wartości sprzedaży objętej stawką 0% z wyłączeniem wewnątrzwspólnotowej dostawy towarów i eksportu. W przypadku faktur zaliczkowych, kwota zaliczki. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:element name="P_13_6_2" type="tns:TKwotowy" minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Suma wartości sprzedaży objętej stawką 0% w przypadku wewnątrzwspólnotowej dostawy towarów. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:element name="P_13_6_3" type="tns:TKwotowy" minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Suma wartości sprzedaży objętej stawką 0% w przypadku eksportu. W przypadku faktur zaliczkowych, kwota zaliczki. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:element name="P_13_7" type="tns:TKwotowy" minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Suma wartości sprzedaży zwolnionej od podatku. W przypadku faktur zaliczkowych, kwota zaliczki. W przypadku faktur korygujących, kwota różnicy wartości sprzedaży</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:element name="P_13_8" type="tns:TKwotowy" minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Suma wartości sprzedaży w przypadku dostawy towarów oraz świadczenia usług poza terytorium kraju, z wyłączeniem kwot wykazanych w polach P_13_5 i P_13_9. W przypadku faktur zaliczkowych, kwota zaliczki. W przypadku faktur korygujących, kwota różnicy wartości sprzedaży</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:element name="P_13_9" type="tns:TKwotowy" minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Suma wartości świadczenia usług, o których mowa w art. 100 ust. 1 pkt 4 ustawy. W przypadku faktur zaliczkowych, kwota zaliczki. W przypadku faktur korygujących, kwota różnicy wartości sprzedaży</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:element name="P_13_10" type="tns:TKwotowy" minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Suma wartości sprzedaży w procedurze odwrotnego obciążenia, dla której podatnikiem jest nabywca zgodnie z art. 17 ust. 1 pkt 7 i 8 ustawy oraz innych przypadków odwrotnego obciążenia występujących w obrocie krajowym. W przypadku faktur zaliczkowych, kwota zaliczki. W przypadku faktur korygujących, kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:element name="P_13_11" type="tns:TKwotowy" minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Suma wartości sprzedaży w procedurze marży, o której mowa w art. 119 i art. 120 ustawy. W przypadku faktur zaliczkowych, kwota zaliczki. W przypadku faktur korygujących, kwota różnicy wartości sprzedaży</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:element name="P_15" type="tns:TKwotowy">
+								<xsd:annotation>
+									<xsd:documentation>Kwota należności ogółem. W przypadku faktur zaliczkowych kwota zapłaty dokumentowana fakturą. W przypadku faktur, o których mowa w art. 106f ust. 3 ustawy kwota pozostała do zapłaty. W przypadku faktur korygujących korekta kwoty wynikającej z faktury korygowanej. W przypadku, o którym mowa w art. 106j ust. 3 ustawy korekta kwot wynikających z faktur korygowanych</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:element name="KursWalutyZ" type="tns:TIlosci" minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Kurs waluty stosowany do wyliczenia kwoty podatku w przypadkach, o których mowa w przepisach Działu VI ustawy na fakturach, o których mowa w art. 106b ust. 1 pkt 4 ustawy</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:element name="Adnotacje">
+								<xsd:annotation>
+									<xsd:documentation>Inne adnotacje na fakturze</xsd:documentation>
+								</xsd:annotation>
+								<xsd:complexType>
+									<xsd:sequence>
+										<xsd:element name="P_16" type="etd:TWybor1_2">
+											<xsd:annotation>
+												<xsd:documentation>W przypadku dostawy towarów lub świadczenia usług, w odniesieniu do których obowiązek podatkowy powstaje zgodnie z art. 19a ust. 5 pkt 1 lub art. 21 ust. 1 ustawy - wyrazy "metoda kasowa", należy podać wartość "1"; w przeciwnym przypadku - wartość "2"</xsd:documentation>
+											</xsd:annotation>
+										</xsd:element>
+										<xsd:element name="P_17" type="etd:TWybor1_2">
+											<xsd:annotation>
+												<xsd:documentation>W przypadku faktur, o których mowa w art. 106d ust. 1 ustawy - wyraz "samofakturowanie", należy podać wartość "1"; w przeciwnym przypadku - wartość "2"</xsd:documentation>
+											</xsd:annotation>
+										</xsd:element>
+										<xsd:element name="P_18" type="etd:TWybor1_2">
+											<xsd:annotation>
+												<xsd:documentation>W przypadku dostawy towarów lub wykonania usługi, dla których obowiązanym do rozliczenia podatku od wartości dodanej lub podatku o podobnym charakterze jest nabywca towaru lub usługi - wyrazy "odwrotne obciążenie", należy podać wartość "1", w przeciwnym przypadku - wartość "2"</xsd:documentation>
+											</xsd:annotation>
+										</xsd:element>
+										<xsd:element name="P_18A" type="etd:TWybor1_2">
+											<xsd:annotation>
+												<xsd:documentation>W przypadku faktur, w których kwota należności ogółem przekracza kwotę 15 000 zł lub jej równowartość wyrażoną w walucie obcej, obejmujących
+dokonaną na rzecz podatnika dostawę towarów lub świadczenie usług, o których mowa w załączniku nr 15 do ustawy - wyrazy "mechanizm podzielonej płatności", przy czym do przeliczania na złote kwot wyrażonych w walucie obcej stosuje się zasady przeliczania kwot stosowane w celu określenia podstawy opodatkowania; należy podać wartość "1", w przeciwnym przypadku - wartość "2"</xsd:documentation>
+											</xsd:annotation>
+										</xsd:element>
+										<xsd:element name="Zwolnienie">
+											<xsd:complexType>
+												<xsd:choice>
+													<xsd:sequence>
+														<xsd:element name="P_19" type="etd:TWybor1">
+															<xsd:annotation>
+																<xsd:documentation>Znacznik dostawy towarów lub świadczenia usług zwolnionych od podatku na podstawie art. 43 ust. 1, art. 113 ust. 1 i 9 albo przepisów wydanych na podstawie art. 82 ust. 3 ustawy lub na podstawie innych przepisów</xsd:documentation>
+															</xsd:annotation>
+														</xsd:element>
+														<xsd:choice>
+															<xsd:element name="P_19A" type="tns:TZnakowy">
+																<xsd:annotation>
+																	<xsd:documentation>Jeśli pole P_19 równa się "1" - należy wskazać przepis ustawy albo aktu wydanego na podstawie ustawy, na podstawie którego podatnik stosuje zwolnienie od podatku</xsd:documentation>
+																</xsd:annotation>
+															</xsd:element>
+															<xsd:element name="P_19B" type="tns:TZnakowy">
+																<xsd:annotation>
+																	<xsd:documentation>Jeśli pole P_19 równa się "1" - należy wskazać przepis dyrektywy 2006/112/WE, który zwalnia od podatku taką dostawę towarów lub takie świadczenie usług</xsd:documentation>
+																</xsd:annotation>
+															</xsd:element>
+															<xsd:element name="P_19C" type="tns:TZnakowy">
+																<xsd:annotation>
+																	<xsd:documentation>Jeśli pole P_19 równa się "1" - należy wskazać inną podstawę prawną wskazującą na to, że dostawa towarów lub świadczenie usług korzysta ze zwolnienia od podatku</xsd:documentation>
+																</xsd:annotation>
+															</xsd:element>
+														</xsd:choice>
+													</xsd:sequence>
+													<xsd:element name="P_19N" type="etd:TWybor1">
+														<xsd:annotation>
+															<xsd:documentation>Znacznik braku dostawy towarów lub świadczenia usług zwolnionych od podatku na podstawie art. 43 ust. 1, art. 113 ust. 1 i 9 ustawy albo przepisów wydanych na podstawie art. 82 ust. 3 ustawy lub na podstawie innych przepisów</xsd:documentation>
+														</xsd:annotation>
+													</xsd:element>
+												</xsd:choice>
+											</xsd:complexType>
+										</xsd:element>
+										<xsd:element name="NoweSrodkiTransportu">
+											<xsd:complexType>
+												<xsd:choice>
+													<xsd:sequence>
+														<xsd:element name="P_22" type="etd:TWybor1">
+															<xsd:annotation>
+																<xsd:documentation>Znacznik wewnątrzwspólnotowej dostawy nowych środków transportu</xsd:documentation>
+															</xsd:annotation>
+														</xsd:element>
+														<xsd:element name="P_42_5" type="etd:TWybor1_2">
+															<xsd:annotation>
+																<xsd:documentation>Jeśli występuje obowiązek, o którym mowa w art. 42 ust. 5 ustawy, należy podać wartość "1", w przeciwnym przypadku - wartość "2"</xsd:documentation>
+															</xsd:annotation>
+														</xsd:element>
+														<xsd:element name="NowySrodekTransportu" maxOccurs="10000">
+															<xsd:complexType>
+																<xsd:sequence>
+																	<xsd:element name="P_22A" type="tns:TDataT">
+																		<xsd:annotation>
+																			<xsd:documentation>Data dopuszczenia nowego środka transportu do użytku</xsd:documentation>
+																		</xsd:annotation>
+																	</xsd:element>
+																	<xsd:element name="P_NrWierszaNST" type="tns:TNaturalny">
+																		<xsd:annotation>
+																			<xsd:documentation>Numer wiersza faktury, w którym wykazano dostawę nowego środka transportu</xsd:documentation>
+																		</xsd:annotation>
+																	</xsd:element>
+																	<xsd:element name="P_22BMK" type="tns:TZnakowy" minOccurs="0">
+																		<xsd:annotation>
+																			<xsd:documentation>Marka nowego środka transportu</xsd:documentation>
+																		</xsd:annotation>
+																	</xsd:element>
+																	<xsd:element name="P_22BMD" type="tns:TZnakowy" minOccurs="0">
+																		<xsd:annotation>
+																			<xsd:documentation>Model nowego środka transportu</xsd:documentation>
+																		</xsd:annotation>
+																	</xsd:element>
+																	<xsd:element name="P_22BK" type="tns:TZnakowy" minOccurs="0">
+																		<xsd:annotation>
+																			<xsd:documentation>Kolor nowego środka transportu</xsd:documentation>
+																		</xsd:annotation>
+																	</xsd:element>
+																	<xsd:element name="P_22BNR" type="tns:TZnakowy" minOccurs="0">
+																		<xsd:annotation>
+																			<xsd:documentation>Numer rejestracyjny nowego środka transportu</xsd:documentation>
+																		</xsd:annotation>
+																	</xsd:element>
+																	<xsd:element name="P_22BRP" type="tns:TZnakowy" minOccurs="0">
+																		<xsd:annotation>
+																			<xsd:documentation>Rok produkcji nowego środka transportu</xsd:documentation>
+																		</xsd:annotation>
+																	</xsd:element>
+																	<xsd:choice>
+																		<xsd:sequence>
+																			<xsd:element name="P_22B" type="tns:TZnakowy">
+																				<xsd:annotation>
+																					<xsd:documentation>Jeśli dostawa dotyczy pojazdów lądowych, o których mowa w art. 2 pkt 10 lit. a ustawy - należy podać przebieg pojazdu</xsd:documentation>
+																				</xsd:annotation>
+																			</xsd:element>
+																			<xsd:choice minOccurs="0">
+																				<xsd:element name="P_22B1" type="tns:TZnakowy" minOccurs="0">
+																					<xsd:annotation>
+																						<xsd:documentation>Jeśli dostawa dotyczy pojazdów lądowych, o których mowa w art. 2 pkt 10 lit. a ustawy - można podać numer VIN</xsd:documentation>
+																					</xsd:annotation>
+																				</xsd:element>
+																				<xsd:element name="P_22B2" type="tns:TZnakowy" minOccurs="0">
+																					<xsd:annotation>
+																						<xsd:documentation>Jeśli dostawa dotyczy pojazdów lądowych, o których mowa w art. 2 pkt 10 lit. a ustawy - można podać numer nadwozia</xsd:documentation>
+																					</xsd:annotation>
+																				</xsd:element>
+																				<xsd:element name="P_22B3" type="tns:TZnakowy" minOccurs="0">
+																					<xsd:annotation>
+																						<xsd:documentation>Jeśli dostawa dotyczy pojazdów lądowych, o których mowa w art. 2 pkt 10 lit. a ustawy - można podać numer podwozia</xsd:documentation>
+																					</xsd:annotation>
+																				</xsd:element>
+																				<xsd:element name="P_22B4" type="tns:TZnakowy" minOccurs="0">
+																					<xsd:annotation>
+																						<xsd:documentation>Jeśli dostawa dotyczy pojazdów lądowych, o których mowa w art. 2 pkt 10 lit. a ustawy - można podać numer ramy</xsd:documentation>
+																					</xsd:annotation>
+																				</xsd:element>
+																			</xsd:choice>
+																			<xsd:element name="P_22BT" type="tns:TZnakowy" minOccurs="0">
+																				<xsd:annotation>
+																					<xsd:documentation>Jeśli dostawa dotyczy pojazdów lądowych, o których mowa w art. 2 pkt 10 lit. a ustawy - można podać typ nowego środka transportu</xsd:documentation>
+																				</xsd:annotation>
+																			</xsd:element>
+																		</xsd:sequence>
+																		<xsd:sequence>
+																			<xsd:element name="P_22C" type="tns:TZnakowy">
+																				<xsd:annotation>
+																					<xsd:documentation>Jeśli dostawa dotyczy jednostek pływających, o których mowa w art. 2 pkt 10 lit. b ustawy, należy podać liczbę godzin roboczych używania nowego środka transportu</xsd:documentation>
+																				</xsd:annotation>
+																			</xsd:element>
+																			<xsd:element name="P_22C1" type="tns:TZnakowy" minOccurs="0">
+																				<xsd:annotation>
+																					<xsd:documentation>Jeśli dostawa dotyczy jednostek pływających, o których mowa w art. 2 pkt 10 lit. b ustawy, można podać numer kadłuba nowego środka transportu</xsd:documentation>
+																				</xsd:annotation>
+																			</xsd:element>
+																		</xsd:sequence>
+																		<xsd:sequence>
+																			<xsd:element name="P_22D" type="tns:TZnakowy">
+																				<xsd:annotation>
+																					<xsd:documentation>Jeśli dostawa dotyczy statków powietrznych, o których mowa w art. 2 pkt 10 lit. c ustawy, należy podać liczbę godzin roboczych używania nowego środka transportu</xsd:documentation>
+																				</xsd:annotation>
+																			</xsd:element>
+																			<xsd:element name="P_22D1" type="tns:TZnakowy" minOccurs="0">
+																				<xsd:annotation>
+																					<xsd:documentation>Jeśli dostawa dotyczy statków powietrznych, o których mowa w art. 2 pkt 10 lit. c ustawy, można podać numer fabryczny nowego środka transportu</xsd:documentation>
+																				</xsd:annotation>
+																			</xsd:element>
+																		</xsd:sequence>
+																	</xsd:choice>
+																</xsd:sequence>
+															</xsd:complexType>
+														</xsd:element>
+													</xsd:sequence>
+													<xsd:element name="P_22N" type="etd:TWybor1">
+														<xsd:annotation>
+															<xsd:documentation>Znacznik braku wewnątrzwspólnotowej dostawy nowych środków transportu</xsd:documentation>
+														</xsd:annotation>
+													</xsd:element>
+												</xsd:choice>
+											</xsd:complexType>
+										</xsd:element>
+										<xsd:element name="P_23" type="etd:TWybor1_2">
+											<xsd:annotation>
+												<xsd:documentation>W przypadku faktur wystawianych w procedurze uproszczonej przez drugiego w kolejności podatnika, o którym mowa w art. 135 ust. 1 pkt 4 lit. b i c oraz ust. 2, zawierającej adnotację, o której mowa w art. 136 ust. 1 pkt 1 i stwierdzenie, o którym mowa w art. 136 ust. 1 pkt 2 ustawy, należy podać wartość "1", w przeciwnym przypadku - wartość "2"</xsd:documentation>
+											</xsd:annotation>
+										</xsd:element>
+										<xsd:element name="PMarzy">
+											<xsd:complexType>
+												<xsd:choice>
+													<xsd:sequence>
+														<xsd:element name="P_PMarzy" type="etd:TWybor1">
+															<xsd:annotation>
+																<xsd:documentation>Znacznik wystąpienia procedur marży, o których mowa w art. 119 lub art. 120 ustawy</xsd:documentation>
+															</xsd:annotation>
+														</xsd:element>
+														<xsd:choice>
+															<xsd:element name="P_PMarzy_2" type="etd:TWybor1">
+																<xsd:annotation>
+																	<xsd:documentation>Znacznik świadczenia usług turystyki, dla których podstawę opodatkowania stanowi marża, zgodnie z art. 119 ust. 1 ustawy, a faktura dokumentująca świadczenie zawiera wyrazy "procedura marży dla biur podróży"</xsd:documentation>
+																</xsd:annotation>
+															</xsd:element>
+															<xsd:element name="P_PMarzy_3_1" type="etd:TWybor1">
+																<xsd:annotation>
+																	<xsd:documentation>Znacznik dostawy towarów używanych dla których podstawę opodatkowania stanowi marża, zgodnie z art. 120 ustawy, a faktura dokumentująca dostawę zawiera wyrazy "procedura marży - towary używane"</xsd:documentation>
+																</xsd:annotation>
+															</xsd:element>
+															<xsd:element name="P_PMarzy_3_2" type="etd:TWybor1">
+																<xsd:annotation>
+																	<xsd:documentation>Znacznik dostawy dzieł sztuki dla których podstawę opodatkowania stanowi marża, zgodnie z art. 120 ustawy, a faktura dokumentująca dostawę zawiera wyrazy "procedura marży - dzieła sztuki"</xsd:documentation>
+																</xsd:annotation>
+															</xsd:element>
+															<xsd:element name="P_PMarzy_3_3" type="etd:TWybor1">
+																<xsd:annotation>
+																	<xsd:documentation>Znacznik dostawy przedmiotów kolekcjonerskich i antyków, dla których podstawę opodatkowania stanowi marża, zgodnie z art. 120 ustawy, a faktura dokumentująca dostawę zawiera wyrazy "procedura marży - przedmioty kolekcjonerskie i antyki"</xsd:documentation>
+																</xsd:annotation>
+															</xsd:element>
+														</xsd:choice>
+													</xsd:sequence>
+													<xsd:element name="P_PMarzyN" type="etd:TWybor1">
+														<xsd:annotation>
+															<xsd:documentation>Znacznik braku wystąpienia procedur marży, o których mowa w art. 119 lub art. 120 ustawy</xsd:documentation>
+														</xsd:annotation>
+													</xsd:element>
+												</xsd:choice>
+											</xsd:complexType>
+										</xsd:element>
+									</xsd:sequence>
+								</xsd:complexType>
+							</xsd:element>
+							<xsd:element name="RodzajFaktury" type="tns:TRodzajFaktury">
+								<xsd:annotation>
+									<xsd:documentation>Rodzaj faktury</xsd:documentation>
+								</xsd:annotation>
+							</xsd:element>
+							<xsd:sequence minOccurs="0">
+								<xsd:annotation>
+									<xsd:documentation>Dane dla przypadków, gdy pole RodzajFaktury przyjmuje wartości KOR, KOR_ZAL lub KOR_ROZ</xsd:documentation>
+								</xsd:annotation>
+								<xsd:element name="PrzyczynaKorekty" type="tns:TZnakowy" minOccurs="0">
+									<xsd:annotation>
+										<xsd:documentation>Przyczyna korekty dla faktur korygujących</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+								<xsd:element name="TypKorekty" type="tns:TTypKorekty" minOccurs="0">
+									<xsd:annotation>
+										<xsd:documentation>Typ skutku korekty w ewidencji dla podatku od towarów i usług</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+								<xsd:element name="DaneFaKorygowanej" maxOccurs="unbounded">
+									<xsd:annotation>
+										<xsd:documentation>Dane faktury korygowanej</xsd:documentation>
+									</xsd:annotation>
+									<xsd:complexType>
+										<xsd:sequence>
+											<xsd:element name="DataWystFaKorygowanej" type="tns:TDataT">
+												<xsd:annotation>
+													<xsd:documentation>Data wystawienia faktury korygowanej</xsd:documentation>
+												</xsd:annotation>
+											</xsd:element>
+											<xsd:element name="NrFaKorygowanej" type="tns:TZnakowy">
+												<xsd:annotation>
+													<xsd:documentation>Numer faktury korygowanej</xsd:documentation>
+												</xsd:annotation>
+											</xsd:element>
+											<xsd:choice>
+												<xsd:sequence>
+													<xsd:element name="NrKSeF" type="etd:TWybor1">
+														<xsd:annotation>
+															<xsd:documentation>Znacznik numeru KSeF faktury korygowanej</xsd:documentation>
+														</xsd:annotation>
+													</xsd:element>
+													<xsd:element name="NrKSeFFaKorygowanej" type="tns:TNumerKSeF">
+														<xsd:annotation>
+															<xsd:documentation>Numer identyfikujący fakturę korygowaną w KSeF</xsd:documentation>
+														</xsd:annotation>
+													</xsd:element>
+												</xsd:sequence>
+												<xsd:element name="NrKSeFN" type="etd:TWybor1">
+													<xsd:annotation>
+														<xsd:documentation>Znacznik faktury korygowanej wystawionej poza KSeF</xsd:documentation>
+													</xsd:annotation>
+												</xsd:element>
+											</xsd:choice>
+										</xsd:sequence>
+									</xsd:complexType>
+								</xsd:element>
+								<xsd:element name="OkresFaKorygowanej" type="tns:TZnakowy" minOccurs="0">
+									<xsd:annotation>
+										<xsd:documentation>Dla faktury korygującej, o której mowa w art. 106j ust. 3 ustawy - okres, do którego odnosi się udzielany opust lub udzielana obniżka, w przypadku gdy podatnik udziela opustu lub obniżki ceny w odniesieniu do dostaw towarów lub usług dokonanych lub świadczonych na rzecz jednego odbiorcy w danym okresie</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+								<xsd:element name="NrFaKorygowany" type="tns:TZnakowy" minOccurs="0">
+									<xsd:annotation>
+										<xsd:documentation>Poprawny numer faktury korygowanej w przypadku, gdy przyczyną korekty jest błędny numer faktury korygowanej. W takim przypadku błędny numer faktury należy wskazać w polu NrFaKorygowanej</xsd:documentation>
+									</xsd:annotation>
+								</xsd:element>
+								<xsd:element name="Podmiot1K" minOccurs="0">
+									<xsd:annotation>
+										<xsd:documentation>W przypadku korekty danych sprzedawcy należy podać pełne dane sprzedawcy występujące na fakturze korygowanej. Pole nie dotyczy przypadku korekty błędnego NIP w
