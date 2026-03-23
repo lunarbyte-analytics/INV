@@ -26,3 +26,6 @@ reports/*.pdf
 .idea/
 .DS_Store
 Thumbs.db
+
+#pliki SQL
+*.sql
