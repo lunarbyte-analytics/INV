@@ -3,11 +3,15 @@ from contextlib import contextmanager
 from pathlib import Path
 import os
 
-DB_PATH = Path("sqllite3_inv.db")
+
+def get_db_path() -> Path:
+    from .app_env import get_database_path
+
+    return get_database_path()
 
 
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     # enforce foreign keys per connection
     conn.execute("PRAGMA foreign_keys = ON;")
@@ -20,7 +24,7 @@ def get_conn() -> sqlite3.Connection:
 
 @contextmanager
 def tx():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     # 👇 WŁĄCZ/ WYŁĄCZ trace przez zmienną środowiskową DEBUG_SQL=1
     if os.getenv("DEBUG_SQL", "1") == "1":
@@ -242,3 +246,20 @@ def init_db():
                     FOREIGN KEY(ServiceId) REFERENCES Service(ServiceId)
                 );
             """)
+
+        # --- KSeF: wysyłki faktury (numer referencyjny API + data wysłania) ---
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='InvoiceKsefSubmission';")
+        if not cur.fetchone():
+            cur.execute("""
+                CREATE TABLE InvoiceKsefSubmission (
+                    InvoiceKsefSubmissionId INTEGER PRIMARY KEY AUTOINCREMENT,
+                    InvoiceId INTEGER NOT NULL,
+                    ReferenceNumber TEXT NOT NULL,
+                    SentAt TEXT NOT NULL,
+                    FOREIGN KEY(InvoiceId) REFERENCES Invoice(InvoiceId) ON DELETE CASCADE
+                );
+            """)
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_invoiceksefsubmission_invoice "
+                "ON InvoiceKsefSubmission(InvoiceId);"
+            )
