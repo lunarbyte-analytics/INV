@@ -1,0 +1,28 @@
+# Środowisko Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Sekrety i konfiguracja lokalna (gdy dodasz API / hasła do zewnętrznych usług)
+.env
+.env.*
+!.env.example
+
+# Baza i dane operacyjne (NIP, adresy, konta — nie publikuj)
+*.db
+*.sqlite
+*.sqlite3
+
+# Kopie i eksporty
+backups/
+output/
+
+# Wygenerowane raporty PDF
+reports/*.pdf
+
+# Edytor / OS
+.idea/
+.DS_Store
+Thumbs.db
