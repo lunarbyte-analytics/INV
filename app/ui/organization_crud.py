@@ -2,6 +2,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
+from ..ceidg.debug_log import ceidg_debug
 from ..ceidg.hd_client import (
     CeidgHdError,
     CeidgNoDataError,
@@ -339,9 +340,8 @@ class OrganizationCrud(tk.Toplevel):
             messagebox.showwarning(
                 "Token API",
                 "Brak tokenu Hurtowni danych CEIDG.\n\n"
-                "Zarejestruj się na https://dane.biznes.gov.pl/ i ustaw zmienną środowiskową:\n"
-                "  CEIDG_HD_API_TOKEN=<token JWT z portalu>\n\n"
-                "(Alternatywnie: BIZNES_GOV_HD_TOKEN)",
+                "W menu głównym: Plik → Ustawienia integracji… — pole token CEIDG, "
+                "lub zmienna środowiskowa CEIDG_HD_API_TOKEN (JWT z https://dane.biznes.gov.pl/).",
                 parent=self,
             )
             return
@@ -350,8 +350,16 @@ class OrganizationCrud(tk.Toplevel):
 
         def work():
             try:
+                ceidg_debug(f"import organizacji: zapytanie po NIP {nip_query!r}")
                 firma = fetch_firma_by_nip(nip_query)
                 flat = flat_firma_for_org(firma)
+                _parts = [
+                    f"{k}={flat.get(k)!r}"
+                    for k in ("name", "org_nip", "city")
+                    if flat.get(k)
+                ]
+                if _parts:
+                    ceidg_debug("spłaszczone pola: " + ", ".join(_parts))
                 self.after(0, lambda: self._apply_ceidg_import(flat))
             except CeidgNoDataError as e:
                 self.after(0, lambda m=str(e): messagebox.showinfo("CEIDG", m, parent=self))
@@ -364,6 +372,7 @@ class OrganizationCrud(tk.Toplevel):
 
     def _apply_ceidg_import(self, flat: dict):
         """Uzupełnia puste pola formularza i — jeśli jest zapisany rekord — puste pola w bazie."""
+        snap = self._snapshot_org_form_for_ceidg()
         self._merge_ceidg_into_form(flat)
         vid = (self.var_id.get() or "").strip()
         if not vid:
@@ -378,7 +387,8 @@ class OrganizationCrud(tk.Toplevel):
         except ValueError:
             return
 
-        did_db = self._merge_ceidg_into_db(oid, flat)
+        did_db = self._merge_ceidg_into_db(oid, flat, snap)
+        ceidg_debug(f"zapis do bazy po imporcie: OrganizationId={oid}, wykonano UPDATE={'tak' if did_db else 'nie'}")
         self._load_lookups()
         self.refresh_table()
         for item in self.tree.get_children():
@@ -404,6 +414,35 @@ class OrganizationCrud(tk.Toplevel):
                 parent=self,
             )
 
+    def _snapshot_org_form_for_ceidg(self) -> dict[str, str]:
+        """Stan pól przed importem — jeśli pole było puste (np. użytkownik wyczyścił nazwę), CEIDG nadpisuje też starą wartość w bazie."""
+        return {
+            "name": (self.var_name.get() or "").strip(),
+            "phone": (self.var_phone.get() or "").strip(),
+            "email": (self.var_email.get() or "").strip(),
+            "org_nip": (self.var_org1.get() or "").strip(),
+            "org_regon": (self.var_org2.get() or "").strip(),
+        }
+
+    @staticmethod
+    def _merge_ceidg_org_field(
+        db_val: str | None,
+        snap_form: str | None,
+        incoming: str | None,
+    ) -> str | None:
+        """
+        Pola organizacji: jeśli przed importem formularz był pusty, przyjmij wartość z CEIDG
+        (nadpisuje starą treść w bazie). Jeśli użytkownik miał wpis — tylko uzupełnianie pustych w DB (merge_pref).
+        """
+        inc = (incoming or "").strip() if incoming is not None else ""
+        if not inc:
+            return None
+        snap = (snap_form or "").strip()
+        if not snap:
+            db = (db_val or "").strip()
+            return inc if inc != db else None
+        return merge_pref(db_val, incoming)
+
     def _merge_ceidg_into_form(self, flat: dict):
         def set_if_empty(var: tk.StringVar, val: str | None):
             m = merge_pref(var.get(), val)
@@ -416,7 +455,12 @@ class OrganizationCrud(tk.Toplevel):
         set_if_empty(self.var_org1, flat.get("org_nip"))
         set_if_empty(self.var_org2, flat.get("org_regon"))
 
-    def _merge_ceidg_into_db(self, org_id: int, flat: dict) -> bool:
+    def _merge_ceidg_into_db(
+        self,
+        org_id: int,
+        flat: dict,
+        snap: dict[str, str],
+    ) -> bool:
         """Zwraca True, jeśli wykonano UPDATE w bazie."""
         org = get_organization_by_id(org_id)
         if not org:
@@ -430,7 +474,7 @@ class OrganizationCrud(tk.Toplevel):
             ("OrgNbr1", "org_nip"),
             ("OrgNbr2", "org_regon"),
         ):
-            m = merge_pref(org[col], flat.get(key))
+            m = self._merge_ceidg_org_field(org[col], snap.get(key), flat.get(key))
             if m is not None:
                 org_updates[col] = m
 

@@ -1,18 +1,20 @@
 """
-Klient API Hurtowni Danych CEIDG (Biznes.gov.pl) — dokumentacja integratorów v1.
+Klient API Hurtowni Danych CEIDG (Biznes.gov.pl) — API HD v3.
+Bazowy URL: …/api/ceidg/v3 (bez /firma, /firmy na końcu).
+GET /firma?nip=… — zgodnie z dokumentacją PDF (np. „HD CEIDG - API v3 HD - Dokumentacja dla integratorów”);
+OpenAPI w repozytorium opisuje requestData, ale produkcyjne API przyjmuje prosty parametr nip.
 Wymaga tokenu JWT z rejestracji na https://dane.biznes.gov.pl/
-Zmienna środowiskowa: CEIDG_HD_API_TOKEN (alternatywnie BIZNES_GOV_HD_TOKEN).
 """
 from __future__ import annotations
 
-import os
 import re
 from typing import Any
 from urllib.parse import urlencode
 
+from ..app_env import get_ceidg_hd_api_base, get_ceidg_hd_api_token
 from ..ksef.http_json import KsefHttpError, request_json
 
-DEFAULT_CEIDG_HD_BASE = "https://dane.biznes.gov.pl/api/ceidg/v1"
+from .debug_log import ceidg_debug
 
 
 class CeidgHdError(Exception):
@@ -31,15 +33,21 @@ def normalize_nip_digits(s: str | None) -> str:
 
 
 def get_ceidg_hd_token() -> str | None:
-    return (
-        os.environ.get("CEIDG_HD_API_TOKEN")
-        or os.environ.get("BIZNES_GOV_HD_TOKEN")
-        or os.environ.get("HD_CEIDG_API_TOKEN")
-    )
+    t = get_ceidg_hd_api_token().strip()
+    return t or None
 
 
 def _base_url() -> str:
-    return (os.environ.get("CEIDG_HD_API_BASE") or DEFAULT_CEIDG_HD_BASE).rstrip("/")
+    return get_ceidg_hd_api_base()
+
+
+def _normalize_ceidg_base(base: str) -> str:
+    """Usuwa przypadkowe końcówki ścieżki (/firma, /firmy), żeby nie powstało …/firmy/firma."""
+    b = (base or "").strip().rstrip("/")
+    for suffix in ("/firmy", "/firma"):
+        if b.endswith(suffix):
+            b = b[: -len(suffix)].rstrip("/")
+    return b
 
 
 def _unwrap_firma(payload: Any) -> dict[str, Any] | None:
@@ -57,35 +65,66 @@ def _unwrap_firma(payload: Any) -> dict[str, Any] | None:
 
 def fetch_firma_by_nip(nip_digits: str, *, token: str | None = None) -> dict[str, Any]:
     """
-    GET /firma?nip= — szczegółowe dane (nazwa, adres, telefon, e-mail wg dokumentacji).
+    GET /firma?nip=… — dokumentacja HD v3 (curl w PDF integratora).
     """
     tok = token or get_ceidg_hd_token()
     if not tok:
         raise CeidgHdError(
-            "Brak tokenu API. Ustaw zmienną środowiskową CEIDG_HD_API_TOKEN "
-            "(token JWT z Hurtowni danych na dane.biznes.gov.pl)."
+            "Brak tokenu API. Ustaw token w menu Plik → Ustawienia integracji… "
+            "lub zmienną CEIDG_HD_API_TOKEN (token JWT z dane.biznes.gov.pl)."
         )
     nip_digits = normalize_nip_digits(nip_digits)
     q = urlencode({"nip": nip_digits})
-    url = f"{_base_url()}/firma?{q}"
+    base = _normalize_ceidg_base(_base_url())
+    url = f"{base}/firma?{q}"
+    ceidg_debug(f"GET {url} (token length={len(tok)})")
     try:
         status, data = request_json("GET", url, bearer_token=tok, timeout=60.0)
     except KsefHttpError as e:
+        ceidg_debug(f"HTTP error status={e.status} body[:400]={(e.body or '')[:400]!r}")
         if e.status == 401:
-            raise CeidgHdError("Odrzucone uwierzytelnienie (401). Sprawdź token CEIDG_HD_API_TOKEN.") from e
+            raise CeidgHdError("Odrzucone uwierzytelnienie (401). Sprawdź token w ustawieniach lub CEIDG_HD_API_TOKEN.") from e
         if e.status == 403:
             raise CeidgHdError("Brak uprawnień do API (403).") from e
+        if e.status == 404:
+            body = (e.body or "").lower()
+            if "context-path" in body or "no context-path" in body:
+                raise CeidgHdError(
+                    "API zwróciło 404 (brak ścieżki) — bazowy adres Hurtowni CEIDG prawdopodobnie "
+                    "nie zgadza się z aktualną dokumentacją (np. zmiana wersji API). "
+                    "W panelu dane.biznes.gov.pl / dokumentacji dla integratorów sprawdź "
+                    "bieżący URL i ustaw go w Plik → Ustawienia integracji… (pole „Bazowy URL API”) "
+                    "lub zmienną CEIDG_HD_API_BASE."
+                ) from e
+            raise CeidgHdError(
+                "Nie znaleziono zasobu (404). Sprawdź NIP oraz bazowy URL API CEIDG."
+            ) from e
         if e.status == 429:
             raise CeidgHdError("Przekroczono limit zapytań do API (429). Spróbuj później.") from e
         raise CeidgHdError(str(e)) from e
 
+    if isinstance(data, dict):
+        ceidg_debug(f"HTTP {status} response keys={list(data.keys())}")
+    else:
+        ceidg_debug(f"HTTP {status} response type={type(data).__name__!r}")
+
     if status == 204 or data is None:
+        ceidg_debug("204 lub pusta odpowiedź — brak danych dla NIP")
         raise CeidgNoDataError("Nie znaleziono danych CEIDG dla podanego NIP.")
 
     firma = _unwrap_firma(data)
     if not firma:
+        ceidg_debug("pole 'firma' puste lub nieobecne po parsowaniu")
         raise CeidgNoDataError("Odpowiedź API nie zawiera danych firmy (firma).")
 
+    ceidg_debug(
+        "firma: "
+        + ", ".join(
+            f"{k}={firma.get(k)!r}"
+            for k in ("nazwa", "status", "id")
+            if k in firma
+        )
+    )
     return firma
 
 
@@ -96,11 +135,24 @@ def _country_pl(kraj: str | None) -> str:
     return kraj.strip() if kraj else "Polska"
 
 
+def _adres_dzialalnosci(firma: dict[str, Any]) -> dict[str, Any]:
+    """v3: adresDzialalnosci; starsze odpowiedzi: adresDzialanosci (literówka w starym API)."""
+    raw = firma.get("adresDzialalnosci") or firma.get("adresDzialanosci") or {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _status_str(firma: dict[str, Any]) -> str | None:
+    st = firma.get("status")
+    if st is None:
+        return None
+    if isinstance(st, str):
+        return st.strip() or None
+    return str(st).strip() or None
+
+
 def flat_firma_for_org(firma: dict[str, Any]) -> dict[str, Any]:
     """Mapuje odpowiedź /firma na pola używane w Organization + Address."""
-    adr = firma.get("adresDzialanosci") or {}
-    if not isinstance(adr, dict):
-        adr = {}
+    adr = _adres_dzialalnosci(firma)
 
     bud = str(adr.get("budynek") or "").strip()
     lok = str(adr.get("lokal") or "").strip()
@@ -142,7 +194,7 @@ def flat_firma_for_org(firma: dict[str, Any]) -> dict[str, Any]:
         "zip_code": (str(adr.get("kod") or "").strip() or None),
         "city": (str(adr.get("miasto") or "").strip() or None),
         "country": _country_pl(str(adr.get("kraj") or "").strip() or None),
-        "status": str(firma.get("status") or "").strip() or None,
+        "status": _status_str(firma),
     }
 
 

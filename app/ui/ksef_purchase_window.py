@@ -1,7 +1,6 @@
 """Okno: lista faktur zakupowych z KSeF (Subject2) i pobieranie XML."""
 from __future__ import annotations
 
-import os
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -10,7 +9,7 @@ from typing import Any
 
 import tkinter as tk
 
-from ..app_env import get_context_organization_id
+from ..app_env import get_context_organization_id, get_ksef_nip, get_ksef_token
 from ..ksef.env_normalize import normalize_ksef_nip, normalize_ksef_token
 from ..ksef.fa_import import import_fa_purchase_xml_to_db, import_fa_purchase_xml_file
 from ..ksef.invoice_submit import format_ksef_error
@@ -84,7 +83,8 @@ class KsefPurchaseWindow(tk.Toplevel):
             frm,
             text=(
                 "Wyszukiwanie faktur, w których Twój NIP (KSEF_NIP) jest nabywcą (Subject2). "
-                "Wymagane uprawnienie InvoiceRead na tokenie oraz zmienne KSEF_TOKEN i KSEF_NIP.\n"
+                "Wymagane uprawnienie InvoiceRead na tokenie oraz konfiguracja w Plik → Ustawienia integracji… "
+                "(lub KSEF_TOKEN i KSEF_NIP).\n"
                 "Import do bazy: na głównym oknie wybierz „Moja firma (kontekst)” — wtedy nabywca z XML "
                 "musi pasować do tej organizacji (NIP)."
             ),
@@ -213,8 +213,8 @@ class KsefPurchaseWindow(tk.Toplevel):
         self._busy = False
 
     def _get_token_nip(self) -> tuple[str, str]:
-        tok = normalize_ksef_token(os.getenv("KSEF_TOKEN", ""))
-        nip = normalize_ksef_nip(os.getenv("KSEF_NIP", ""))
+        tok = normalize_ksef_token(get_ksef_token())
+        nip = normalize_ksef_nip(get_ksef_nip())
         return tok, nip
 
     def _parse_page_size(self) -> int:
@@ -242,7 +242,7 @@ class KsefPurchaseWindow(tk.Toplevel):
         if not tok or not nip:
             messagebox.showwarning(
                 "KSeF",
-                "Ustaw zmienne środowiskowe KSEF_TOKEN i KSEF_NIP (jak przy wysyłce faktury).",
+                "Ustaw KSeF w menu Plik → Ustawienia integracji… lub zmienne KSEF_TOKEN i KSEF_NIP.",
                 parent=self,
             )
             return
@@ -362,7 +362,11 @@ class KsefPurchaseWindow(tk.Toplevel):
         out_dir = Path(folder)
         tok, nip = self._get_token_nip()
         if not tok or not nip:
-            messagebox.showwarning("KSeF", "Brak KSEF_TOKEN lub KSEF_NIP.", parent=self)
+            messagebox.showwarning(
+                "KSeF",
+                "Brak tokenu lub NIP. Ustaw w Plik → Ustawienia integracji… lub KSEF_TOKEN / KSEF_NIP.",
+                parent=self,
+            )
             return
 
         rows: list[str] = []
@@ -424,7 +428,11 @@ class KsefPurchaseWindow(tk.Toplevel):
             return
         tok, nip = self._get_token_nip()
         if not tok or not nip:
-            messagebox.showwarning("KSeF", "Brak KSEF_TOKEN lub KSEF_NIP.", parent=self)
+            messagebox.showwarning(
+                "KSeF",
+                "Brak tokenu lub NIP. Ustaw w Plik → Ustawienia integracji… lub KSEF_TOKEN / KSEF_NIP.",
+                parent=self,
+            )
             return
 
         rows: list[str] = []

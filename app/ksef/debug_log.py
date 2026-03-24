@@ -1,12 +1,11 @@
-"""Logi konsoli do debugu KSeF — włącz: KSEF_DEBUG=1 (true/yes/on)."""
+"""Logi konsoli do debugu KSeF — włącz: KSEF_DEBUG lub ustawienia w pliku (Plik → Ustawienia integracji)."""
 from __future__ import annotations
 
-import os
+from ..app_env import get_ksef_debug
 
 
 def ksef_debug_enabled() -> bool:
-    v = (os.getenv("KSEF_DEBUG") or "").strip().lower()
-    return v in ("1", "true", "yes", "on")
+    return get_ksef_debug()
 
 
 def ksef_debug(msg: str) -> None:

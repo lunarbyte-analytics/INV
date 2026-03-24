@@ -1,10 +1,10 @@
 """Wysyłka pojedynczej faktury z bazy do KSeF (FA(2), sesja interaktywna)."""
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any
 
+from ..app_env import get_ksef_nip, get_ksef_token
 from ..models.invoice import get_invoice_full, record_ksef_submission
 from .auth_flow import fetch_public_certs, obtain_access_token
 from .client import _effective_base_url
@@ -26,11 +26,12 @@ class KsefSubmitResult:
 
 def send_invoice_to_ksef(invoice_id: int) -> KsefSubmitResult:
     ksef_debug(f"send_invoice_to_ksef: start, InvoiceId={invoice_id}")
-    token = normalize_ksef_token(os.getenv("KSEF_TOKEN", ""))
-    nip = normalize_ksef_nip(os.getenv("KSEF_NIP", ""))
+    token = normalize_ksef_token(get_ksef_token())
+    nip = normalize_ksef_nip(get_ksef_nip())
     if not token or not nip:
         raise ValueError(
-            "Brak konfiguracji KSeF. Ustaw zmienne środowiskowe:\n"
+            "Brak konfiguracji KSeF. Ustaw w menu Plik → Ustawienia integracji… "
+            "lub zmienne środowiskowe:\n"
             "  KSEF_TOKEN — token KSeF do uwierzytelnienia\n"
             "  KSEF_NIP — NIP kontekstu (podmiotu), zgodny z tokenem\n"
             "Opcjonalnie: KSEF_TEST_BASE_URL — adres API (domyślnie środowisko testowe)."

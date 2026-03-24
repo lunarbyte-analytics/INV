@@ -1,9 +1,9 @@
 import json
-import os
 import threading
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 
+from ..app_env import get_ksef_nip, get_ksef_test_base_url, get_ksef_token
 from ..ksef.client import ENV_TEST, test_challenge_connection
 from ..ksef.http_json import KsefHttpError
 from ..ksef.token_status import fetch_token_status
@@ -25,12 +25,12 @@ class KsefConnectionWindow(tk.Toplevel):
         ttk.Label(frm, text=ENV_TEST["label"]).grid(row=1, column=0, sticky="w")
 
         ttk.Label(frm, text="Bazowy adres API (v2)", font=("Segoe UI", 10, "bold")).grid(row=2, column=0, sticky="nw", pady=(12, 0))
-        self._base_var = tk.StringVar(value=ENV_TEST["base_url"])
+        self._base_var = tk.StringVar(value=get_ksef_test_base_url() or ENV_TEST["base_url"])
         base_entry = ttk.Entry(frm, textvariable=self._base_var, width=72)
         base_entry.grid(row=3, column=0, sticky="ew")
 
         hint = (
-            "Możesz nadpisać adres zmienną środowiskową KSEF_TEST_BASE_URL. "
+            "Adres z ustawień (Plik → Ustawienia integracji…) lub ze zmiennej KSEF_TEST_BASE_URL. "
             "„Testuj połączenie” wywołuje POST …/auth/challenge."
         )
         ttk.Label(frm, text=hint, wraplength=660, font=("Segoe UI", 9), foreground="#444").grid(
@@ -53,7 +53,7 @@ class KsefConnectionWindow(tk.Toplevel):
 
         ttk.Label(
             frm,
-            text="Wymaga pełnego uwierzytelnienia (jak wysyłka faktury). Wpisz token i NIP lub pozostaw puste — użyte będą KSEF_TOKEN i KSEF_NIP ze środowiska.",
+            text="Wymaga pełnego uwierzytelnienia (jak wysyłka faktury). Wpisz token i NIP lub pozostaw puste — użyte będą wartości z Plik → Ustawienia integracji… / zmiennych KSEF_TOKEN i KSEF_NIP.",
             wraplength=660,
             font=("Segoe UI", 9),
             foreground="#444",
@@ -62,14 +62,14 @@ class KsefConnectionWindow(tk.Toplevel):
         row_tok = ttk.Frame(frm)
         row_tok.grid(row=9, column=0, sticky="ew")
         ttk.Label(row_tok, text="Token (opcjonalnie):").pack(side=tk.LEFT)
-        self._token_var = tk.StringVar(value=os.getenv("KSEF_TOKEN", ""))
+        self._token_var = tk.StringVar(value=get_ksef_token())
         ent_tok = ttk.Entry(row_tok, textvariable=self._token_var, width=62)
         ent_tok.pack(side=tk.LEFT, padx=(8, 0), fill=tk.X, expand=True)
 
         row_nip = ttk.Frame(frm)
         row_nip.grid(row=10, column=0, sticky="ew", pady=(6, 0))
         ttk.Label(row_nip, text="NIP kontekstu:").pack(side=tk.LEFT)
-        self._nip_var = tk.StringVar(value=os.getenv("KSEF_NIP", ""))
+        self._nip_var = tk.StringVar(value=get_ksef_nip())
         ttk.Entry(row_nip, textvariable=self._nip_var, width=16).pack(side=tk.LEFT, padx=(8, 0))
 
         ttk.Button(frm, text="Sprawdź status tokena", command=self._run_token_status).grid(
@@ -111,9 +111,9 @@ class KsefConnectionWindow(tk.Toplevel):
         tok = self._token_var.get()
         nip = self._nip_var.get()
         if not tok.strip():
-            tok = os.getenv("KSEF_TOKEN", "")
+            tok = get_ksef_token()
         if not nip.strip():
-            nip = os.getenv("KSEF_NIP", "")
+            nip = get_ksef_nip()
 
         self._append_log("\n--- Status tokena ---\n")
         self._append_log("Trwa uwierzytelnianie i żądanie GET /tokens/{numer referencyjny}…\n")

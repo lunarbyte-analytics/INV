@@ -6,12 +6,13 @@ Dokumentacja (środowisko testowe): https://api-test.ksef.mf.gov.pl/docs/v2/
 from __future__ import annotations
 
 import json
-import os
 import ssl
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+from ..app_env import get_ksef_test_base_url
 
 # Zgodnie z OpenAPI: servers[0].url dla TE
 ENV_TEST = {
@@ -24,7 +25,7 @@ ENV_TEST = {
 def _effective_base_url(base_url: str | None) -> str:
     if base_url and base_url.strip():
         return base_url.strip().rstrip("/")
-    override = os.getenv("KSEF_TEST_BASE_URL", "").strip()
+    override = get_ksef_test_base_url()
     if override:
         return override.rstrip("/")
     return ENV_TEST["base_url"]
