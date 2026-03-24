@@ -24,6 +24,27 @@ def get_tax_all():
         return cur.fetchall()
 
 
+def find_tax_id_by_value(rate: float) -> Optional[int]:
+    """Pierwszy TaxId o danej stawce (np. 23.0)."""
+    with tx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT TaxId FROM Tax WHERE ABS(Value - ?) < 0.001 ORDER BY TaxId LIMIT 1;",
+            (float(rate),),
+        )
+        row = cur.fetchone()
+        return int(row["TaxId"]) if row else None
+
+
+def get_or_create_tax_by_rate(rate: float) -> int:
+    """Gwarantuje istnienie stawki w słowniku Tax (np. import FA z nietypową stawką)."""
+    tid = find_tax_id_by_value(rate)
+    if tid is not None:
+        return tid
+    label = f"VAT {float(rate):g}%"
+    return create_tax(label, float(rate), 0)
+
+
 def get_tax_by_id(tax_id: int) -> Optional[sqlite3.Row]:
     with tx() as conn:
         cur = conn.cursor()
