@@ -1,9 +1,0 @@
-#!/bin/sh
-# Wymaga niepustego opisu commita (pole Message w Cursor).
-# Ignoruje: linie komentarza Git (#...) oraz trailer dodawany przez Cursor (Made-with: ...).
-if ! sed '/^[[:space:]]*#/d' "$1" | tr -d '\r' | grep -vi '^[[:space:]]*made-with:' | grep -q '[^[:space:]]'; then
-  echo ""
-  echo "Commit odrzucony: wpisz niepusty komunikat (Message) przed zatwierdzeniem."
-  exit 1
-fi
-exit 0
