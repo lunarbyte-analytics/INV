@@ -1,9 +1,16 @@
 from typing import Optional
 import sqlite3
 from ..db import tx
+from .record_source import RECORD_SOURCE_USER
 
 
-def create_unit(code: str, name: str, default_flag: int = 0) -> int:
+def create_unit(
+    code: str,
+    name: str,
+    default_flag: int = 0,
+    *,
+    record_source: str = RECORD_SOURCE_USER,
+) -> int:
     if default_flag not in (0, 1):
         raise ValueError("default_flag musi być 0 lub 1")
     with tx() as conn:
@@ -11,8 +18,8 @@ def create_unit(code: str, name: str, default_flag: int = 0) -> int:
         if default_flag == 1:
             cur.execute("UPDATE Unit SET DefaultFlag = 0;")
         cur.execute(
-            "INSERT INTO Unit (Code, Name, DefaultFlag) VALUES (?, ?, ?);",
-            (code, name, default_flag),
+            "INSERT INTO Unit (Code, Name, DefaultFlag, RecordSource) VALUES (?, ?, ?, ?);",
+            (code, name, default_flag, record_source),
         )
         return cur.lastrowid
 
@@ -20,7 +27,9 @@ def create_unit(code: str, name: str, default_flag: int = 0) -> int:
 def get_unit_all():
     with tx() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT UnitId, Code, Name, DefaultFlag FROM Unit ORDER BY UnitId;")
+        cur.execute(
+            "SELECT UnitId, Code, Name, DefaultFlag, RecordSource FROM Unit ORDER BY UnitId;"
+        )
         return cur.fetchall()
 
 
@@ -38,7 +47,10 @@ def find_unit_id_by_code(code: str) -> Optional[int]:
 def get_unit_by_id(unit_id: int) -> Optional[sqlite3.Row]:
     with tx() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT UnitId, Code, Name, DefaultFlag FROM Unit WHERE UnitId = ?;", (unit_id,))
+        cur.execute(
+            "SELECT UnitId, Code, Name, DefaultFlag, RecordSource FROM Unit WHERE UnitId = ?;",
+            (unit_id,),
+        )
         return cur.fetchone()
 
 

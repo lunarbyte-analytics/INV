@@ -9,6 +9,7 @@ from ..models import (
     get_unit_all,
     get_tax_all,
 )
+from ..models.record_source import record_source_label_pl
 
 
 class ServiceCrud(tk.Toplevel):
@@ -67,7 +68,7 @@ class ServiceCrud(tk.Toplevel):
         # Table
         self.tree = ttk.Treeview(
             self,
-            columns=("ServiceId","Name","Unit","Tax","UnitPrice","Version"),
+            columns=("ServiceId", "Name", "Unit", "Tax", "UnitPrice", "Version", "Source"),
             show="headings",
         )
         self.tree.heading("ServiceId", text="ServiceId")
@@ -76,12 +77,14 @@ class ServiceCrud(tk.Toplevel):
         self.tree.heading("Tax", text="Tax")
         self.tree.heading("UnitPrice", text="UnitPrice")
         self.tree.heading("Version", text="Version")
-        self.tree.column("ServiceId", width=80, anchor=tk.E)
-        self.tree.column("Name", width=260)
-        self.tree.column("Unit", width=160)
-        self.tree.column("Tax", width=160)
-        self.tree.column("UnitPrice", width=100, anchor=tk.E)
-        self.tree.column("Version", width=100)
+        self.tree.heading("Source", text="Źródło")
+        self.tree.column("ServiceId", width=70, anchor=tk.E)
+        self.tree.column("Name", width=200)
+        self.tree.column("Unit", width=130)
+        self.tree.column("Tax", width=130)
+        self.tree.column("UnitPrice", width=90, anchor=tk.E)
+        self.tree.column("Version", width=80)
+        self.tree.column("Source", width=100)
         self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0,10))
         self.tree.bind("<<TreeviewSelect>>", self.on_select_row)
 
@@ -101,7 +104,20 @@ class ServiceCrud(tk.Toplevel):
         for r in get_service_all():
             unit_label = f"{r['UnitCode'] or ''} — {r['UnitName']}"
             tax_label = f"{r['TaxName']} ({float(r['TaxValue']):.2f}%)"
-            self.tree.insert("", tk.END, values=(r["ServiceId"], r["Name"], unit_label, tax_label, f"{float(r['UnitPrice']):.2f}", r["Version"]))
+            src = r["RecordSource"] if "RecordSource" in r.keys() else "user"
+            self.tree.insert(
+                "",
+                tk.END,
+                values=(
+                    r["ServiceId"],
+                    r["Name"],
+                    unit_label,
+                    tax_label,
+                    f"{float(r['UnitPrice']):.2f}",
+                    r["Version"],
+                    record_source_label_pl(src),
+                ),
+            )
 
     def clear_form(self):
         self.var_id.set(""); self.var_name.set(""); self.var_unit.set(""); self.var_tax.set(""); self.var_price.set(""); self.var_version.set("")
@@ -111,7 +127,12 @@ class ServiceCrud(tk.Toplevel):
         if not sel:
             return
         values = self.tree.item(sel[0], "values")
-        self.var_id.set(values[0]); self.var_name.set(values[1]); self.var_unit.set(values[2]); self.var_tax.set(values[3]); self.var_price.set(values[4]); self.var_version.set(values[5])
+        self.var_id.set(values[0])
+        self.var_name.set(values[1])
+        self.var_unit.set(values[2])
+        self.var_tax.set(values[3])
+        self.var_price.set(values[4])
+        self.var_version.set(values[5])
 
     def _validate_inputs(self, require_id=False) -> bool:
         if require_id and not self.var_id.get():

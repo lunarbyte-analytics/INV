@@ -1,5 +1,11 @@
 # ------------------------------ app/models/__init__.py ------------------------------
 
+from .record_source import (
+    RECORD_SOURCE_KSEF_IMPORT,
+    RECORD_SOURCE_USER,
+    record_source_label_pl,
+)
+
 # --- TAX ---
 from .tax import (
     create_tax,
@@ -69,6 +75,9 @@ from .invoice import (
 )
 
 __all__ = [
+    "RECORD_SOURCE_USER",
+    "RECORD_SOURCE_KSEF_IMPORT",
+    "record_source_label_pl",
     # TAX
     "create_tax",
     "get_tax_all",

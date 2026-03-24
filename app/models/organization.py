@@ -2,6 +2,7 @@ import re
 from typing import Optional
 import sqlite3
 from ..db import tx
+from .record_source import RECORD_SOURCE_USER
 
 
 def _nip_norm(s: str | None) -> str:
@@ -21,14 +22,39 @@ def find_organization_id_by_nip_digits(nip_digits: str) -> Optional[int]:
                 return int(r["OrganizationId"])
     return None
 
-def create_organization(address_id: int, additional_address_id: Optional[int], name: str,
-                        phone: str, email: str, org1: str, org2: str, org3: str, bank: str) -> int:
+def create_organization(
+    address_id: int,
+    additional_address_id: Optional[int],
+    name: str,
+    phone: str,
+    email: str,
+    org1: str,
+    org2: str,
+    org3: str,
+    bank: str,
+    *,
+    record_source: str = RECORD_SOURCE_USER,
+) -> int:
     with tx() as conn:
         cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO Organization (AddressId, AdditionalAddressId, Name, Phone, Email, OrgNbr1, OrgNbr2, OrgNbr3, BankAccountNbr)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
-        """, (address_id, additional_address_id, name, phone, email, org1, org2, org3, bank))
+        cur.execute(
+            """
+            INSERT INTO Organization (AddressId, AdditionalAddressId, Name, Phone, Email, OrgNbr1, OrgNbr2, OrgNbr3, BankAccountNbr, RecordSource)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                address_id,
+                additional_address_id,
+                name,
+                phone,
+                email,
+                org1,
+                org2,
+                org3,
+                bank,
+                record_source,
+            ),
+        )
         return cur.lastrowid
 
 def get_organization_all():
@@ -45,8 +71,9 @@ def get_organization_all():
                 o.OrgNbr2,
                 o.OrgNbr3,
                 o.BankAccountNbr,
-                o.AddressId,                -- potrzebne dla UI
-                o.AdditionalAddressId,      -- potrzebne dla UI
+                o.AddressId,
+                o.AdditionalAddressId,
+                o.RecordSource,
                 a.City   AS AddressCity,
                 a.Country AS AddressCountry
             FROM Organization o
@@ -72,6 +99,7 @@ def get_organization_by_id(org_id: int) -> Optional[sqlite3.Row]:
                 o.BankAccountNbr,
                 o.AddressId,
                 o.AdditionalAddressId,
+                o.RecordSource,
                 a.City   AS AddressCity,
                 a.Country AS AddressCountry
             FROM Organization o

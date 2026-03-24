@@ -1,9 +1,16 @@
 from typing import Optional
 import sqlite3
 from ..db import tx
+from .record_source import RECORD_SOURCE_USER
 
 
-def create_tax(name: str, value: float, default_flag: int = 0) -> int:
+def create_tax(
+    name: str,
+    value: float,
+    default_flag: int = 0,
+    *,
+    record_source: str = RECORD_SOURCE_USER,
+) -> int:
     if default_flag not in (0, 1):
         raise ValueError("default_flag musi być 0 lub 1")
     with tx() as conn:
@@ -11,8 +18,8 @@ def create_tax(name: str, value: float, default_flag: int = 0) -> int:
         if default_flag == 1:
             cur.execute("UPDATE Tax SET DefaultFlag = 0;")
         cur.execute(
-            "INSERT INTO Tax (Name, Value, DefaultFlag) VALUES (?, ?, ?);",
-            (name, float(value), default_flag),
+            "INSERT INTO Tax (Name, Value, DefaultFlag, RecordSource) VALUES (?, ?, ?, ?);",
+            (name, float(value), default_flag, record_source),
         )
         return cur.lastrowid
 
@@ -20,7 +27,9 @@ def create_tax(name: str, value: float, default_flag: int = 0) -> int:
 def get_tax_all():
     with tx() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT TaxId, Name, Value, DefaultFlag FROM Tax ORDER BY TaxId;")
+        cur.execute(
+            "SELECT TaxId, Name, Value, DefaultFlag, RecordSource FROM Tax ORDER BY TaxId;"
+        )
         return cur.fetchall()
 
 
@@ -36,19 +45,26 @@ def find_tax_id_by_value(rate: float) -> Optional[int]:
         return int(row["TaxId"]) if row else None
 
 
-def get_or_create_tax_by_rate(rate: float) -> int:
+def get_or_create_tax_by_rate(
+    rate: float,
+    *,
+    record_source: str = RECORD_SOURCE_USER,
+) -> int:
     """Gwarantuje istnienie stawki w słowniku Tax (np. import FA z nietypową stawką)."""
     tid = find_tax_id_by_value(rate)
     if tid is not None:
         return tid
     label = f"VAT {float(rate):g}%"
-    return create_tax(label, float(rate), 0)
+    return create_tax(label, float(rate), 0, record_source=record_source)
 
 
 def get_tax_by_id(tax_id: int) -> Optional[sqlite3.Row]:
     with tx() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT TaxId, Name, Value, DefaultFlag FROM Tax WHERE TaxId = ?;", (tax_id,))
+        cur.execute(
+            "SELECT TaxId, Name, Value, DefaultFlag, RecordSource FROM Tax WHERE TaxId = ?;",
+            (tax_id,),
+        )
         return cur.fetchone()
 
 

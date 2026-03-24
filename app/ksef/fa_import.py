@@ -21,6 +21,7 @@ from ..models.organization import (
     find_organization_id_by_nip_digits,
     get_organization_by_id,
 )
+from ..models.record_source import RECORD_SOURCE_KSEF_IMPORT
 from ..models.service import create_service
 from ..models.tax import find_tax_id_by_value, get_or_create_tax_by_rate
 from ..models.unit import create_unit, find_unit_id_by_code
@@ -211,13 +212,15 @@ def _resolve_tax_id(stawka: str) -> int:
         return -1
     if s in ("zw", "0") or s == "0.0":
         tid = find_tax_id_by_value(0.0)
-        return tid if tid is not None else get_or_create_tax_by_rate(0.0)
+        return tid if tid is not None else get_or_create_tax_by_rate(
+            0.0, record_source=RECORD_SOURCE_KSEF_IMPORT
+        )
     if re.match(r"^\d+$", s) or re.match(r"^\d+[.,]\d+$", s):
         v = float(s.replace(",", "."))
         tid = find_tax_id_by_value(v)
         if tid is not None:
             return tid
-        return get_or_create_tax_by_rate(v)
+        return get_or_create_tax_by_rate(v, record_source=RECORD_SOURCE_KSEF_IMPORT)
     raise ValueError(f"Nieobsługiwana stawka VAT w pozycji: {stawka!r}")
 
 
@@ -226,7 +229,7 @@ def _ensure_unit(code: str) -> int:
     uid = find_unit_id_by_code(c)
     if uid is not None:
         return uid
-    return create_unit(c, c[:64], 0)
+    return create_unit(c, c[:64], 0, record_source=RECORD_SOURCE_KSEF_IMPORT)
 
 
 def _ensure_organization(party: FaParty) -> int:
@@ -244,6 +247,7 @@ def _ensure_organization(party: FaParty) -> int:
         party.zip_code,
         party.city,
         "Polska" if (party.country or "").upper() in ("PL", "") else party.country,
+        record_source=RECORD_SOURCE_KSEF_IMPORT,
     )
     return create_organization(
         aid,
@@ -255,6 +259,7 @@ def _ensure_organization(party: FaParty) -> int:
         "",
         "",
         "",
+        record_source=RECORD_SOURCE_KSEF_IMPORT,
     )
 
 
@@ -338,7 +343,14 @@ def import_fa_purchase_xml_to_db(
         svc_name = (
             f"{ln.name[:120]} (import #{i})" if len(data.lines) > 1 else ln.name[:240]
         )
-        sid = create_service(unit_id, tax_id, svc_name, price, version="ksef-import")
+        sid = create_service(
+            unit_id,
+            tax_id,
+            svc_name,
+            price,
+            version="ksef-import",
+            record_source=RECORD_SOURCE_KSEF_IMPORT,
+        )
         add_detail(invoice_id, sid, qty_f)
 
     ref = (ksef_number or "").strip()

@@ -1,6 +1,16 @@
-from .app_env import load_settings
-from .db import init_db
-from .ui.main_app import MainApp
+"""Punkt wejścia aplikacji (uruchom z katalogu projektu: `python main.py` albo `python -m app.main`)."""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# Umożliwia `python app/main.py` (bez pakietu nadrzędnego w ścieżce importów).
+if __name__ == "__main__" and not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app.app_env import load_settings
+from app.db import init_db
+from app.ui.main_app import MainApp
 
 
 def main():
@@ -8,11 +18,13 @@ def main():
     init_db()
     try:
         from ctypes import windll
+
         windll.shcore.SetProcessDpiAwareness(1)
     except Exception:
         pass
     app = MainApp()
     app.mainloop()
+
 
 if __name__ == "__main__":
     main()
