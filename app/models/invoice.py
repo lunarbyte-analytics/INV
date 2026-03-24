@@ -94,10 +94,46 @@ def delete_invoice(invoice_id: int) -> bool:
         cur.execute("DELETE FROM Invoice WHERE InvoiceId = ?;", (invoice_id,))
         return cur.rowcount > 0
 
-def get_invoice_list():
+def invoice_flow_role(company_id: int, customer_id: int, context_org_id: Optional[int]) -> str:
+    """
+    Względem wybranej „mojej firmy”: sprzedaż = wystawiamy, zakup = jesteśmy nabywcą.
+    """
+    if context_org_id is None:
+        return "—"
+    if company_id == context_org_id and customer_id == context_org_id:
+        return "Sprzedaż i zakup"
+    if company_id == context_org_id:
+        return "Sprzedaż"
+    if customer_id == context_org_id:
+        return "Zakup"
+    return "Poza kontekstem"
+
+
+def get_invoice_list(
+    *,
+    context_org_id: Optional[int] = None,
+    flow_filter: Optional[str] = None,
+):
+    """
+    flow_filter: None / 'all' — wszystkie; 'sales' — tylko sprzedaż (CompanyId = kontekst);
+    'purchase' — tylko zakup (CustomerId = kontekst). Wymaga ustawionego context_org_id.
+    """
+    where_extra: list[str] = []
+    params: list[Any] = []
+    if flow_filter == "sales" and context_org_id is not None:
+        where_extra.append("i.CompanyId = ?")
+        params.append(context_org_id)
+    elif flow_filter == "purchase" and context_org_id is not None:
+        where_extra.append("i.CustomerId = ?")
+        params.append(context_org_id)
+
+    where_sql = ""
+    if where_extra:
+        where_sql = " AND " + " AND ".join(where_extra)
+
     with tx() as conn:
         cur = conn.cursor()
-        sql = """
+        sql = f"""
             SELECT
                 i.InvoiceId,
                 i.Name,
@@ -125,11 +161,21 @@ def get_invoice_list():
             LEFT JOIN Status s        ON s.StatusId        = i.StatusId
             LEFT JOIN Organization c  ON c.OrganizationId  = i.CustomerId
             LEFT JOIN Organization co ON co.OrganizationId = i.CompanyId
+            WHERE 1=1
+            {where_sql}
             ORDER BY i.InvoiceId DESC;
         """
         print("[DEBUG] get_invoice_list()")
-        cur.execute(sql)
-        return cur.fetchall()
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    out: list[Dict[str, Any]] = []
+    for r in rows:
+        d = dict(r)
+        d["FlowRole"] = invoice_flow_role(
+            int(d["CompanyId"]), int(d["CustomerId"]), context_org_id
+        )
+        out.append(d)
+    return out
 
 
 def get_invoice_full(invoice_id: int):
