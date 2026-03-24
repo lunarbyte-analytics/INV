@@ -201,7 +201,12 @@ def parse_fa_xml(xml_bytes: bytes) -> FaParsed:
 
 
 def _resolve_tax_id(stawka: str) -> int:
-    s = (stawka or "").strip().lower()
+    """
+    Mapuje pole P_12 z FA na TaxId. Wartość liczbowa jest brana z XML tak jak jest —
+    brak sztywnych „aliasów” (np. 7↔8); jeśli nie ma wiersza w Tax, dopisywany jest przez get_or_create_tax_by_rate.
+    """
+    raw = (stawka or "").strip()
+    s = raw.lower().replace("%", "").strip()
     if s in ("np", "oo"):
         return -1
     if s in ("zw", "0") or s == "0.0":
@@ -209,17 +214,6 @@ def _resolve_tax_id(stawka: str) -> int:
         return tid if tid is not None else get_or_create_tax_by_rate(0.0)
     if re.match(r"^\d+$", s) or re.match(r"^\d+[.,]\d+$", s):
         v = float(s.replace(",", "."))
-        if v in (22.0, 23.0):
-            tid = find_tax_id_by_value(23.0) or find_tax_id_by_value(22.0)
-            return tid if tid is not None else get_or_create_tax_by_rate(23.0)
-        if v in (7.0, 8.0):
-            tid = find_tax_id_by_value(8.0) or find_tax_id_by_value(7.0)
-            return tid if tid is not None else get_or_create_tax_by_rate(8.0)
-        if v == 5.0:
-            tid = find_tax_id_by_value(5.0)
-            if tid is not None:
-                return tid
-            return get_or_create_tax_by_rate(5.0)
         tid = find_tax_id_by_value(v)
         if tid is not None:
             return tid
