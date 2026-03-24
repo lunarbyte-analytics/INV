@@ -178,7 +178,7 @@ class MainApp(tk.Tk):
             root,
             text=(
                 "Kolumna „Typ”: względem „Mojej firmy” — Sprzedaż = wystawiasz fakturę, Zakup = otrzymujesz. "
-                "Dwuklik/Enter — edycja. Akcje: 🖨️ druk, ✏️ szkic, 📄 wystawiona, 💰 opłacona."
+                "Dwuklik lub Enter — edycja faktury. Druk i zmiana statusu — przyciski pod listą."
             ),
             font=("Segoe UI", 10),
             wraplength=1100,
@@ -209,7 +209,6 @@ class MainApp(tk.Tk):
         table_frame.rowconfigure(0, weight=1)
         table_frame.columnconfigure(0, weight=1)
 
-        # Kolumny danych + 4 kolumny akcji
         self._cols_data = (
             "InvoiceId",
             "FlowRole",
@@ -221,17 +220,14 @@ class MainApp(tk.Tk):
             "KsefReferenceNumber",
             "KsefSentAt",
         )
-        self._cols_actions = ("Print", "ToDraft", "ToIssued", "ToPaid")
-        cols = self._cols_data + self._cols_actions
 
         self.tree_invoices = ttk.Treeview(
             table_frame,
-            columns=cols,
+            columns=self._cols_data,
             show="headings",
             selectmode="browse"
         )
 
-        # Nagłówki danych
         self.tree_invoices.heading("InvoiceId", text="ID")
         self.tree_invoices.heading("FlowRole", text="Typ")
         self.tree_invoices.heading("Name", text="Numer")
@@ -242,13 +238,6 @@ class MainApp(tk.Tk):
         self.tree_invoices.heading("KsefReferenceNumber", text="KSeF — nr ref.")
         self.tree_invoices.heading("KsefSentAt", text="KSeF — wysłano")
 
-        # Nagłówki akcji
-        self.tree_invoices.heading("Print", text="🖨️")
-        self.tree_invoices.heading("ToDraft", text="✏️")
-        self.tree_invoices.heading("ToIssued", text="📄")
-        self.tree_invoices.heading("ToPaid", text="💰")
-
-        # Szerokości
         self.tree_invoices.column("InvoiceId", width=60, anchor="e")
         self.tree_invoices.column("FlowRole", width=130, anchor="w")
         self.tree_invoices.column("Name", width=130, anchor="w")
@@ -259,10 +248,6 @@ class MainApp(tk.Tk):
         self.tree_invoices.column("KsefReferenceNumber", width=280, anchor="w")
         self.tree_invoices.column("KsefSentAt", width=150, anchor="center")
 
-        # Kolumny akcji – węższe
-        for c in self._cols_actions:
-            self.tree_invoices.column(c, width=40, anchor="center", stretch=False)
-
         self.tree_invoices.grid(row=0, column=0, sticky="nsew")
 
         # Scrollbary
@@ -272,25 +257,43 @@ class MainApp(tk.Tk):
         yscroll.grid(row=0, column=1, sticky="ns")
         xscroll.grid(row=1, column=0, sticky="ew")
 
-        # Bindy
-        self.tree_invoices.bind("<Double-1>", self.on_open_selected_invoice)  # dwuklik
-        self.tree_invoices.bind("<Return>",   self.on_open_selected_invoice)  # Enter
-        self.tree_invoices.bind("<Button-1>", self.on_tree_click)             # klik w akcje
+        self.tree_invoices.bind("<Double-1>", self.on_open_selected_invoice)
+        self.tree_invoices.bind("<Return>", self.on_open_selected_invoice)
 
-        # --- DODANY PANEL Z PRZYCISKIEM "ODŚWIEŻ" ---
         btn_panel = ttk.Frame(root)
         btn_panel.pack(fill=tk.X, pady=(0, 6))
         ttk.Button(
             btn_panel,
-            text="📤 Wyślij do KSeF",
-            command=self.on_send_selected_to_ksef,
+            text="Drukuj PDF",
+            command=self.on_print_selected_invoice,
         ).pack(side=tk.LEFT, padx=(10, 0))
         ttk.Button(
             btn_panel,
-            text="📥 Faktury zakupowe z KSeF",
+            text="Status: Szkic",
+            command=lambda: self._on_set_selected_status(1),
+        ).pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Button(
+            btn_panel,
+            text="Status: Wystawiona",
+            command=lambda: self._on_set_selected_status(2),
+        ).pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Button(
+            btn_panel,
+            text="Status: Opłacona",
+            command=lambda: self._on_set_selected_status(3),
+        ).pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Separator(btn_panel, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=2)
+        ttk.Button(
+            btn_panel,
+            text="Wyślij do KSeF",
+            command=self.on_send_selected_to_ksef,
+        ).pack(side=tk.LEFT, padx=(0, 0))
+        ttk.Button(
+            btn_panel,
+            text="Faktury zakupowe z KSeF",
             command=self.open_ksef_purchase_window,
-        ).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(btn_panel, text="🔄 Odśwież listę", command=self.refresh_invoice_list).pack(side=tk.RIGHT, padx=10)
+        ).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(btn_panel, text="Odśwież listę", command=self.refresh_invoice_list).pack(side=tk.RIGHT, padx=10)
 
         try:
             self.refresh_invoice_list()
@@ -298,46 +301,27 @@ class MainApp(tk.Tk):
             print("[DEBUG] refresh_invoice_list EXC:", e)
             
     # ---------------------- Handlery listy ----------------------
-    def on_tree_click(self, event):
-        """Klik w komórkę – obsługa kolumn akcji."""
-        region = self.tree_invoices.identify("region", event.x, event.y)
-        if region != "cell":
+    def on_print_selected_invoice(self):
+        inv_id = self._get_selected_invoice_id()
+        if inv_id is None:
+            messagebox.showwarning("Druk", "Zaznacz fakturę na liście.")
             return
-        col = self.tree_invoices.identify_column(event.x)  # np. "#7"
-        row_id = self.tree_invoices.identify_row(event.y)
-        if not row_id:
-            return
-
-        values = self.tree_invoices.item(row_id, "values")
-        if not values:
-            return
-
-        inv_id = int(values[0])
-        # 9 kolumn danych, potem akcje:
-        # #10 = Print, #11 = ToDraft, #12 = ToIssued, #13 = ToPaid
         try:
-            if col == "#10":   # DRUK
-                pdf = generate_invoice_pdf(inv_id)
-                open_preview(pdf)
-                return
+            pdf = generate_invoice_pdf(inv_id)
+            open_preview(pdf)
+        except Exception as e:
+            messagebox.showerror("Druk", str(e))
 
-            if col == "#11":   # Do Szkic (StatusId=1)
-                update_invoice(inv_id, StatusId=1)
-                self.refresh_invoice_list()
-                return
-
-            if col == "#12":   # Do Wystawiona (StatusId=2)
-                update_invoice(inv_id, StatusId=2)
-                self.refresh_invoice_list()
-                return
-
-            if col == "#13":  # Do Opłacona (StatusId=3)
-                update_invoice(inv_id, StatusId=3)
-                self.refresh_invoice_list()
-                return
+    def _on_set_selected_status(self, status_id: int):
+        inv_id = self._get_selected_invoice_id()
+        if inv_id is None:
+            messagebox.showwarning("Status", "Zaznacz fakturę na liście.")
+            return
+        try:
+            update_invoice(inv_id, StatusId=status_id)
+            self.refresh_invoice_list()
         except Exception as e:
             messagebox.showerror("Błąd", str(e))
-
 
     def open_calendar(self):
         CalendarWindow(self)
@@ -534,6 +518,5 @@ class MainApp(tk.Tk):
                     r["CustomerName"],
                     kref,
                     sent,
-                    "🖨️", "✏️", "📄", "💰",
                 ),
             )
