@@ -2,11 +2,18 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from ..app_env import AppEnvironment, get_environment, is_test_environment, set_environment
+from ..app_env import (
+    AppEnvironment,
+    get_context_organization_id,
+    get_environment,
+    is_test_environment,
+    set_context_organization_id,
+    set_environment,
+)
 from ..ksef.debug_log import ksef_debug
 from ..ksef.invoice_submit import format_ksef_error, send_invoice_to_ksef
 from ..restart_util import restart_application
-from ..models.invoice import get_invoice_list, update_invoice
+from ..models.invoice import get_invoice_list, get_organizations, update_invoice
 from ..reports.invoice_pdf import generate_invoice_pdf, open_preview
 
 from .invoice_crud import InvoiceCrud
@@ -29,6 +36,8 @@ class MainApp(tk.Tk):
         self.geometry("1200x640")
         self._build_env_banner()
         self._build_menu()
+        self._invoice_meta: dict[int, tuple[int, int]] = {}
+        self._flow_labels = ("Wszystkie", "Tylko sprzedaż", "Tylko zakup")
         self._build_home()
         self.refresh_invoice_list()
 
@@ -113,15 +122,81 @@ class MainApp(tk.Tk):
         restart_application()
 
     # ---------------------- HOME (lista faktur) ----------------------
+    def _org_display_label(self, oid: int, name: str) -> str:
+        n = (name or "").strip() or f"Org {oid}"
+        return f"{n} (ID {oid})"
+
+    def _populate_context_org_combo(self):
+        self._org_labels_to_id: dict[str, int] = {}
+        rows = get_organizations()
+        labels = ["— Wybierz firmę (kontekst) —"]
+        for r in rows:
+            oid = int(r["OrganizationId"])
+            lab = self._org_display_label(oid, r["Name"] or "")
+            self._org_labels_to_id[lab] = oid
+            labels.append(lab)
+        self.cb_context_org["values"] = labels
+        ctx = get_context_organization_id()
+        if ctx is not None:
+            for lab, oid in self._org_labels_to_id.items():
+                if oid == ctx:
+                    self.cb_context_org.set(lab)
+                    return
+        self.cb_context_org.set(labels[0])
+
+    def _on_context_org_selected(self, _evt=None):
+        lab = self.cb_context_org.get()
+        oid = self._org_labels_to_id.get(lab) if hasattr(self, "_org_labels_to_id") else None
+        if lab.startswith("—") or oid is None:
+            set_context_organization_id(None)
+        else:
+            set_context_organization_id(oid)
+        self.refresh_invoice_list()
+
+    def _on_flow_filter_selected(self, _evt=None):
+        lab = self._var_flow.get()
+        ctx = get_context_organization_id()
+        if lab in ("Tylko sprzedaż", "Tylko zakup") and ctx is None:
+            messagebox.showwarning(
+                "Filtr",
+                "Aby filtrować sprzedaż lub zakup, najpierw wybierz „Moja firma (kontekst)”.",
+                parent=self,
+            )
+            self._var_flow.set(self._flow_labels[0])
+        self.refresh_invoice_list()
+
     def _build_home(self):
         root = ttk.Frame(self)
         root.pack(expand=True, fill=tk.BOTH)
 
         ttk.Label(
             root,
-            text="Dwuklik/Enter na fakturze otwiera okno edycji. Klik w kolumnie akcji: 🖨️ druk, ✏️ szkic, 📄 wystawiona, 💰 opłacona.",
-            font=("Segoe UI", 10)
-        ).pack(pady=8)
+            text=(
+                "Kolumna „Typ”: względem „Mojej firmy” — Sprzedaż = wystawiasz fakturę, Zakup = otrzymujesz. "
+                "Dwuklik/Enter — edycja. Akcje: 🖨️ druk, ✏️ szkic, 📄 wystawiona, 💰 opłacona."
+            ),
+            font=("Segoe UI", 10),
+            wraplength=1100,
+        ).pack(pady=(8, 4))
+
+        filter_bar = ttk.Frame(root)
+        filter_bar.pack(fill=tk.X, padx=10, pady=(0, 6))
+        ttk.Label(filter_bar, text="Moja firma (kontekst):").pack(side=tk.LEFT)
+        self.cb_context_org = ttk.Combobox(filter_bar, width=42, state="readonly")
+        self.cb_context_org.pack(side=tk.LEFT, padx=(6, 16))
+        self.cb_context_org.bind("<<ComboboxSelected>>", self._on_context_org_selected)
+        ttk.Label(filter_bar, text="Widok:").pack(side=tk.LEFT)
+        self._var_flow = tk.StringVar(value=self._flow_labels[0])
+        self.cb_flow = ttk.Combobox(
+            filter_bar,
+            textvariable=self._var_flow,
+            values=self._flow_labels,
+            width=18,
+            state="readonly",
+        )
+        self.cb_flow.pack(side=tk.LEFT, padx=6)
+        self.cb_flow.bind("<<ComboboxSelected>>", self._on_flow_filter_selected)
+        self._populate_context_org_combo()
 
         # Kontener na tabelę + scrollbary
         table_frame = ttk.Frame(root)
@@ -132,6 +207,7 @@ class MainApp(tk.Tk):
         # Kolumny danych + 4 kolumny akcji
         self._cols_data = (
             "InvoiceId",
+            "FlowRole",
             "Name",
             "CreateDate",
             "StatusName",
@@ -152,6 +228,7 @@ class MainApp(tk.Tk):
 
         # Nagłówki danych
         self.tree_invoices.heading("InvoiceId", text="ID")
+        self.tree_invoices.heading("FlowRole", text="Typ")
         self.tree_invoices.heading("Name", text="Numer")
         self.tree_invoices.heading("CreateDate", text="Data")
         self.tree_invoices.heading("StatusName", text="Status")
@@ -167,12 +244,13 @@ class MainApp(tk.Tk):
         self.tree_invoices.heading("ToPaid", text="💰")
 
         # Szerokości
-        self.tree_invoices.column("InvoiceId", width=70, anchor="e")
-        self.tree_invoices.column("Name", width=150, anchor="w")
+        self.tree_invoices.column("InvoiceId", width=60, anchor="e")
+        self.tree_invoices.column("FlowRole", width=130, anchor="w")
+        self.tree_invoices.column("Name", width=130, anchor="w")
         self.tree_invoices.column("CreateDate", width=100, anchor="center")
         self.tree_invoices.column("StatusName", width=120, anchor="w")
-        self.tree_invoices.column("CompanyName", width=250, anchor="w")
-        self.tree_invoices.column("CustomerName", width=220, anchor="w")
+        self.tree_invoices.column("CompanyName", width=200, anchor="w")
+        self.tree_invoices.column("CustomerName", width=200, anchor="w")
         self.tree_invoices.column("KsefReferenceNumber", width=280, anchor="w")
         self.tree_invoices.column("KsefSentAt", width=150, anchor="center")
 
@@ -225,25 +303,25 @@ class MainApp(tk.Tk):
             return
 
         inv_id = int(values[0])
-        # 8 kolumn danych, potem akcje:
-        # #9 = Print, #10 = ToDraft, #11 = ToIssued, #12 = ToPaid
+        # 9 kolumn danych, potem akcje:
+        # #10 = Print, #11 = ToDraft, #12 = ToIssued, #13 = ToPaid
         try:
-            if col == "#9":   # DRUK
+            if col == "#10":   # DRUK
                 pdf = generate_invoice_pdf(inv_id)
                 open_preview(pdf)
                 return
 
-            if col == "#10":   # Do Szkic (StatusId=1)
+            if col == "#11":   # Do Szkic (StatusId=1)
                 update_invoice(inv_id, StatusId=1)
                 self.refresh_invoice_list()
                 return
 
-            if col == "#11":   # Do Wystawiona (StatusId=2)
+            if col == "#12":   # Do Wystawiona (StatusId=2)
                 update_invoice(inv_id, StatusId=2)
                 self.refresh_invoice_list()
                 return
 
-            if col == "#12":  # Do Opłacona (StatusId=3)
+            if col == "#13":  # Do Opłacona (StatusId=3)
                 update_invoice(inv_id, StatusId=3)
                 self.refresh_invoice_list()
                 return
@@ -356,6 +434,24 @@ class MainApp(tk.Tk):
         if inv_id is None:
             messagebox.showwarning("KSeF", "Zaznacz fakturę na liście (jeden wiersz).")
             return
+        ctx = get_context_organization_id()
+        if ctx is not None:
+            meta = self._invoice_meta.get(inv_id)
+            if not meta:
+                messagebox.showwarning(
+                    "KSeF",
+                    "Brak danych wiersza — odśwież listę faktur.",
+                    parent=self,
+                )
+                return
+            if int(meta[0]) != ctx:
+                messagebox.showwarning(
+                    "KSeF",
+                    "Wybrana faktura nie jest sprzedażową względem wybranej „Mojej firmy”. "
+                    "Do KSeF wysyła się tylko własną sprzedaż.",
+                    parent=self,
+                )
+                return
 
         def work():
             try:
@@ -388,8 +484,22 @@ class MainApp(tk.Tk):
         for i in self.tree_invoices.get_children():
             self.tree_invoices.delete(i)
 
-        # Wiersze danych + wartości akcji (same ikonki jako tekst)
-        for r in get_invoice_list():
+        ctx = get_context_organization_id()
+        lab = self._var_flow.get()
+        flow_map = {
+            self._flow_labels[0]: None,
+            self._flow_labels[1]: "sales",
+            self._flow_labels[2]: "purchase",
+        }
+        ff = flow_map.get(lab)
+        if ff in ("sales", "purchase") and ctx is None:
+            ff = None
+        rows = get_invoice_list(context_org_id=ctx, flow_filter=ff)
+
+        self._invoice_meta = {}
+        for r in rows:
+            inv_id = int(r["InvoiceId"])
+            self._invoice_meta[inv_id] = (int(r["CompanyId"]), int(r["CustomerId"]))
             kref = r["KsefReferenceNumber"] or ""
             sent = r["KsefSentAt"] or ""
             if sent and "T" in sent:
@@ -398,6 +508,7 @@ class MainApp(tk.Tk):
                 "", "end",
                 values=(
                     r["InvoiceId"],
+                    r["FlowRole"],
                     r["Name"],
                     r["CreateDate"],
                     r["StatusName"],
@@ -405,6 +516,6 @@ class MainApp(tk.Tk):
                     r["CustomerName"],
                     kref,
                     sent,
-                    "🖨️", "✏️", "📄", "💰"  # kolumny akcji
-                )
+                    "🖨️", "✏️", "📄", "💰",
+                ),
             )
