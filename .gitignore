@@ -9,6 +9,8 @@ __pycache__/
 .env
 .env.*
 !.env.example
+.vscode
+.githooks
 
 # Baza i dane operacyjne (NIP, adresy, konta — nie publikuj)
 *.db
@@ -29,3 +31,6 @@ Thumbs.db
 
 #pliki SQL
 *.sql
+
+#Dokumnetacja
+Dokumentacja dla integratorów API HD v3

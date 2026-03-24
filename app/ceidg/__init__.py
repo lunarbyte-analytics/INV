@@ -1,5 +1,6 @@
 """Integracja z Hurtownią danych CEIDG (Biznes.gov.pl)."""
 
+from .debug_log import ceidg_debug, ceidg_debug_enabled
 from .hd_client import (
     CeidgHdError,
     CeidgNoDataError,
@@ -12,6 +13,8 @@ from .hd_client import (
 __all__ = [
     "CeidgHdError",
     "CeidgNoDataError",
+    "ceidg_debug",
+    "ceidg_debug_enabled",
     "fetch_firma_by_nip",
     "flat_firma_for_org",
     "get_ceidg_hd_token",
