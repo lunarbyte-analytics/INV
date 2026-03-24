@@ -56,3 +56,35 @@ def request_json(
         return status, json.loads(raw)
     except json.JSONDecodeError as ex:
         raise KsefHttpError(f"Odpowiedź nie jest JSON ({status}): {raw[:500]}", status=status) from ex
+
+
+def request_bytes(
+    method: str,
+    url: str,
+    *,
+    bearer_token: str | None = None,
+    accept: str = "*/*",
+    timeout: float = 120.0,
+) -> tuple[int, bytes, str | None]:
+    """Żądanie HTTP zwracające surowe bajty (np. GET application/xml)."""
+    headers: dict[str, str] = {"Accept": accept}
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
+
+    req = Request(url, method=method, headers=headers)
+    try:
+        with urlopen(req, timeout=timeout, context=_ctx()) as resp:
+            raw = resp.read()
+            status = resp.status
+            ct = resp.headers.get("Content-Type")
+            return status, raw, ct
+    except HTTPError as e:
+        body = e.read()
+        txt = body.decode("utf-8", errors="replace")
+        raise KsefHttpError(
+            f"HTTP {e.code} {method} {url}\n{txt[:4000]}",
+            status=e.code,
+            body=txt,
+        ) from e
+    except URLError as e:
+        raise KsefHttpError(f"Brak połączenia: {url}: {e.reason!s}") from e
