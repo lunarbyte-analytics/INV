@@ -1,6 +1,25 @@
+import re
 from typing import Optional
 import sqlite3
 from ..db import tx
+
+
+def _nip_norm(s: str | None) -> str:
+    return re.sub(r"\D", "", str(s or ""))
+
+
+def find_organization_id_by_nip_digits(nip_digits: str) -> Optional[int]:
+    """Zwraca OrganizationId, jeśli OrgNbr1 ma ten sam NIP (10 cyfr)."""
+    nd = _nip_norm(nip_digits)
+    if len(nd) != 10:
+        return None
+    with tx() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT OrganizationId, OrgNbr1 FROM Organization")
+        for r in cur.fetchall():
+            if _nip_norm(r["OrgNbr1"]) == nd:
+                return int(r["OrganizationId"])
+    return None
 
 def create_organization(address_id: int, additional_address_id: Optional[int], name: str,
                         phone: str, email: str, org1: str, org2: str, org3: str, bank: str) -> int:

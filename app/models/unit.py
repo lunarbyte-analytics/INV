@@ -24,6 +24,17 @@ def get_unit_all():
         return cur.fetchall()
 
 
+def find_unit_id_by_code(code: str) -> Optional[int]:
+    c = (code or "").strip()
+    if not c:
+        return None
+    with tx() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT UnitId FROM Unit WHERE Code = ? ORDER BY UnitId LIMIT 1;", (c,))
+        row = cur.fetchone()
+        return int(row["UnitId"]) if row else None
+
+
 def get_unit_by_id(unit_id: int) -> Optional[sqlite3.Row]:
     with tx() as conn:
         cur = conn.cursor()

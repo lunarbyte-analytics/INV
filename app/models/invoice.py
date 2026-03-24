@@ -88,6 +88,25 @@ def update_invoice(invoice_id: int, **fields) -> bool:
         cur.execute(f"UPDATE Invoice SET {', '.join(sets)} WHERE InvoiceId = ?;", params)
         return cur.rowcount > 0
 
+def find_invoice_by_party_and_name(company_id: int, customer_id: int, name: str) -> Optional[int]:
+    """Unikalność wg sprzedawca + nabywca + numer faktury (pole Name)."""
+    n = (name or "").strip()
+    if not n:
+        return None
+    with tx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT InvoiceId FROM Invoice
+            WHERE CompanyId = ? AND CustomerId = ? AND Name = ?
+            LIMIT 1;
+            """,
+            (company_id, customer_id, n),
+        )
+        row = cur.fetchone()
+        return int(row["InvoiceId"]) if row else None
+
+
 def delete_invoice(invoice_id: int) -> bool:
     with tx() as conn:
         cur = conn.cursor()
