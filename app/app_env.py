@@ -21,15 +21,12 @@ def load_settings() -> AppEnvironment:
     global _current
     if _current is not None:
         return _current
-    if SETTINGS_FILE.exists():
-        try:
-            data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-            raw = data.get("environment", AppEnvironment.PRODUCTION.value)
-            if raw in (e.value for e in AppEnvironment):
-                _current = AppEnvironment(raw)
-            else:
-                _current = AppEnvironment.PRODUCTION
-        except (OSError, json.JSONDecodeError, TypeError):
+    data = _load_settings_file()
+    if data:
+        raw = data.get("environment", AppEnvironment.PRODUCTION.value)
+        if raw in (e.value for e in AppEnvironment):
+            _current = AppEnvironment(raw)
+        else:
             _current = AppEnvironment.PRODUCTION
     else:
         _current = AppEnvironment.PRODUCTION
@@ -42,14 +39,53 @@ def get_environment() -> AppEnvironment:
     return _current
 
 
+def _load_settings_file() -> dict:
+    if not SETTINGS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _save_settings_file(data: dict) -> None:
+    SETTINGS_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def set_environment(env: AppEnvironment, *, persist: bool = True) -> None:
     global _current
     _current = env
     if persist:
-        SETTINGS_FILE.write_text(
-            json.dumps({"environment": env.value}, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        data = _load_settings_file()
+        data["environment"] = env.value
+        _save_settings_file(data)
+
+
+def get_context_organization_id() -> int | None:
+    """Wybrana w UI „moja firma” — do rozróżnienia sprzedaży i zakupu na liście faktur."""
+    v = _load_settings_file().get("context_organization_id")
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def set_context_organization_id(org_id: int | None, *, persist: bool = True) -> None:
+    data = _load_settings_file()
+    if org_id is None:
+        data.pop("context_organization_id", None)
+    else:
+        data["context_organization_id"] = int(org_id)
+    if "environment" not in data:
+        data["environment"] = get_environment().value
+    if persist:
+        _save_settings_file(data)
 
 
 def get_database_path() -> Path:
