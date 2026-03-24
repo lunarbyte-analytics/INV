@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, date
 import sqlite3
+from ..app_env import get_context_organization_id
 from ..db import tx
 
 ISO_DATE = "%Y-%m-%d"
@@ -112,6 +113,60 @@ def delete_invoice(invoice_id: int) -> bool:
         cur = conn.cursor()
         cur.execute("DELETE FROM Invoice WHERE InvoiceId = ?;", (invoice_id,))
         return cur.rowcount > 0
+
+
+def invoice_has_ksef_submission(invoice_id: int) -> bool:
+    """Czy w bazie jest zapis wysyłki do KSeF (nasza aplikacja zapisała numer referencyjny)."""
+    with tx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM InvoiceKsefSubmission WHERE InvoiceId = ? LIMIT 1;",
+            (invoice_id,),
+        )
+        return cur.fetchone() is not None
+
+
+def invoice_can_be_deleted(
+    invoice_id: int,
+    company_id: int,
+    customer_id: int,
+) -> Tuple[bool, str]:
+    """
+    Reguły usuwania: faktura zakupowa — zawsze; sprzedażowa — tylko gdy nie było wysyłki do KSeF
+    (brak wiersza w InvoiceKsefSubmission). Typ (sprzedaż/zakup) wg kontekstu „Moja firma”.
+    """
+    ctx = get_context_organization_id()
+    role = invoice_flow_role(company_id, customer_id, ctx)
+    has_ksef = invoice_has_ksef_submission(invoice_id)
+
+    if role == "Zakup":
+        return True, ""
+
+    if role == "Sprzedaż":
+        if not has_ksef:
+            return True, ""
+        return (
+            False,
+            "Nie można usunąć: faktura sprzedażowa została wysłana do KSeF.",
+        )
+
+    if role == "Sprzedaż i zakup":
+        if not has_ksef:
+            return True, ""
+        return (
+            False,
+            "Nie można usunąć: faktura ma zapis wysyłki do KSeF (sprzedaż).",
+        )
+
+    # Brak kontekstu („—”) lub „Poza kontekstem” — nie rozróżniamy sprzedaży i zakupu.
+    if not has_ksef:
+        return True, ""
+    return (
+        False,
+        "Nie można usunąć: faktura ma zapis wysyłki do KSeF. "
+        "Ustaw „Moją firmę” w kontekście na liście faktur, aby stosować reguły sprzedaż/zakup.",
+    )
+
 
 def invoice_flow_role(company_id: int, customer_id: int, context_org_id: Optional[int]) -> str:
     """

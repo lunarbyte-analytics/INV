@@ -7,7 +7,7 @@ from typing import Optional
 from ..models.invoice import (
     get_payment_methods, get_statuses, get_invoice_types,
     get_organizations, get_services,
-    create_invoice, update_invoice, delete_invoice,
+    create_invoice, update_invoice, delete_invoice, invoice_can_be_deleted,
     get_invoice_full, add_detail, update_detail, delete_detail,
     get_ksef_submissions_for_invoice,
 )
@@ -48,6 +48,9 @@ class InvoiceCrud(tk.Toplevel):
         # budowa UI i lookups
         self._build_widgets()
         self._load_lookups()
+
+        self._loaded_company_id: Optional[int] = None
+        self._loaded_customer_id: Optional[int] = None
 
         # czysty formularz
         self.on_new()
@@ -152,7 +155,8 @@ class InvoiceCrud(tk.Toplevel):
         btns.pack(fill=tk.X, padx=10, pady=(0, 10))
         ttk.Button(btns, text="Nowa faktura", command=self.on_new).pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="Zapisz", command=self.on_save).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btns, text="Usuń", command=self.on_delete).pack(side=tk.LEFT, padx=5)
+        self.btn_delete = ttk.Button(btns, text="Usuń", command=self.on_delete)
+        self.btn_delete.pack(side=tk.LEFT, padx=5)
 
         # ---- Detale (pozycje) – JEDYNA sekcja ----
         frm_d = ttk.LabelFrame(self, text="Pozycje")
@@ -282,7 +286,25 @@ class InvoiceCrud(tk.Toplevel):
         # table
         for i in self.tree_details.get_children():
             self.tree_details.delete(i)
+        self._loaded_company_id = None
+        self._loaded_customer_id = None
         self._refresh_ksef_panel(None)
+        self._refresh_delete_button_state()
+
+    def _refresh_delete_button_state(self):
+        if not getattr(self, "btn_delete", None):
+            return
+        vid = (self.var_invoice_id.get() or "").strip()
+        if not vid or self._loaded_company_id is None or self._loaded_customer_id is None:
+            self.btn_delete.configure(state="disabled")
+            return
+        try:
+            inv_id = int(vid)
+        except (ValueError, TypeError):
+            self.btn_delete.configure(state="disabled")
+            return
+        ok, _msg = invoice_can_be_deleted(inv_id, self._loaded_company_id, self._loaded_customer_id)
+        self.btn_delete.configure(state="normal" if ok else "disabled")
 
     def _refresh_ksef_panel(self, invoice_id: Optional[int] = None):
         if not hasattr(self, "_txt_ksef"):
@@ -404,7 +426,10 @@ class InvoiceCrud(tk.Toplevel):
         # Detale -> tabela
         print(f"[DEBUG] load_invoice: details rows = {len(details)} for id={invoice_id}")
         self._fill_details_table(details)
+        self._loaded_company_id = int(header["CompanyId"])
+        self._loaded_customer_id = int(header["CustomerId"])
         self._refresh_ksef_panel(invoice_id)
+        self._refresh_delete_button_state()
 
     def on_new(self):
         """Przygotuj czysty formularz."""
@@ -432,7 +457,10 @@ class InvoiceCrud(tk.Toplevel):
                     payment_date=self.var_payment_date.get().strip() or None,
                 )
                 self.var_invoice_id.set(str(new_id))
+                self._loaded_company_id = int(ids["CompanyId"])
+                self._loaded_customer_id = int(ids["CustomerId"])
                 self._refresh_ksef_panel(new_id)
+                self._refresh_delete_button_state()
                 messagebox.showinfo("Sukces", f"Utworzono fakturę (ID={new_id}).")
             else:
                 # UPDATE
@@ -451,8 +479,11 @@ class InvoiceCrud(tk.Toplevel):
                     PaymentDate=self.var_payment_date.get().strip(),
                 )
                 if ok:
+                    self._loaded_company_id = int(ids["CompanyId"])
+                    self._loaded_customer_id = int(ids["CustomerId"])
                     messagebox.showinfo("Sukces", "Zapisano zmiany.")
                     self._refresh_ksef_panel(inv_id)
+                    self._refresh_delete_button_state()
                 else:
                     messagebox.showwarning("Uwaga", "Brak zmian lub faktura nie istnieje.")
         except Exception as e:
@@ -463,6 +494,13 @@ class InvoiceCrud(tk.Toplevel):
             messagebox.showwarning("Walidacja", "Brak wybranej faktury do usunięcia.")
             return
         inv_id = int(self.var_invoice_id.get())
+        if self._loaded_company_id is None or self._loaded_customer_id is None:
+            messagebox.showwarning("Walidacja", "Brak danych faktury — odśwież okno.")
+            return
+        ok, reason = invoice_can_be_deleted(inv_id, self._loaded_company_id, self._loaded_customer_id)
+        if not ok:
+            messagebox.showwarning("Usuwanie", reason)
+            return
         if not messagebox.askyesno("Potwierdzenie", f"Usunąć fakturę ID={inv_id}? Operacja nieodwracalna."):
             return
         try:
