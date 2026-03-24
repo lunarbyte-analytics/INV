@@ -24,6 +24,7 @@ from .address_crud import AddressCrud
 from .organization_crud import OrganizationCrud
 from .calendar_view import CalendarWindow
 from .ksef_connection import KsefConnectionWindow
+from .ksef_purchase_window import KsefPurchaseWindow
 
 
 class MainApp(tk.Tk):
@@ -98,6 +99,10 @@ class MainApp(tk.Tk):
 
         m_ksef = tk.Menu(menubar, tearoff=0)
         m_ksef.add_command(label="Test połączenia", command=self.open_ksef_test_window)
+        m_ksef.add_command(
+            label="Faktury zakupowe (pobierz z KSeF)",
+            command=self.open_ksef_purchase_window,
+        )
         menubar.add_cascade(label="KSeF", menu=m_ksef)
 
         self.config(menu=menubar)
@@ -280,6 +285,11 @@ class MainApp(tk.Tk):
             text="📤 Wyślij do KSeF",
             command=self.on_send_selected_to_ksef,
         ).pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Button(
+            btn_panel,
+            text="📥 Faktury zakupowe z KSeF",
+            command=self.open_ksef_purchase_window,
+        ).pack(side=tk.LEFT, padx=(6, 0))
         ttk.Button(btn_panel, text="🔄 Odśwież listę", command=self.refresh_invoice_list).pack(side=tk.RIGHT, padx=10)
 
         try:
@@ -416,6 +426,14 @@ class MainApp(tk.Tk):
             return
         self._ksef_test_win = KsefConnectionWindow(self)
         self._ksef_test_win.focus_set()
+
+    def open_ksef_purchase_window(self):
+        if getattr(self, "_ksef_purchase_win", None) is not None and self._ksef_purchase_win.winfo_exists():
+            self._ksef_purchase_win.deiconify()
+            self._ksef_purchase_win.focus_set()
+            return
+        self._ksef_purchase_win = KsefPurchaseWindow(self)
+        self._ksef_purchase_win.focus_set()
 
     def _get_selected_invoice_id(self):
         sel = self.tree_invoices.selection()
