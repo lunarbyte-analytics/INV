@@ -8,6 +8,7 @@ from ..models import (
     delete_unit,
     set_default_unit,
 )
+from ..models.record_source import record_source_label_pl
 
 
 class UnitCrud(tk.Toplevel):
@@ -46,8 +47,14 @@ class UnitCrud(tk.Toplevel):
         ttk.Button(btns, text="Wyczyść formularz", command=self.clear_form).pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="Odśwież", command=self.refresh_table).pack(side=tk.RIGHT, padx=5)
 
-        self.tree = ttk.Treeview(self, columns=("UnitId", "Code", "Name", "Default"), show="headings")
-        for col, text, w, anchor in (("UnitId","UnitId",70,tk.E),("Code","Code",120,tk.W),("Name","Name",360,tk.W),("Default","Default",80,tk.CENTER)):
+        self.tree = ttk.Treeview(self, columns=("UnitId", "Code", "Name", "Default", "Source"), show="headings")
+        for col, text, w, anchor in (
+            ("UnitId", "UnitId", 70, tk.E),
+            ("Code", "Code", 100, tk.W),
+            ("Name", "Name", 280, tk.W),
+            ("Default", "Default", 70, tk.CENTER),
+            ("Source", "Źródło", 100, tk.W),
+        ):
             self.tree.heading(col, text=text)
             self.tree.column(col, width=w, anchor=anchor)
         self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0,10))
@@ -57,7 +64,18 @@ class UnitCrud(tk.Toplevel):
         for i in self.tree.get_children():
             self.tree.delete(i)
         for row in get_unit_all():
-            self.tree.insert("", tk.END, values=(row["UnitId"], row["Code"], row["Name"], row["DefaultFlag"]))
+            src = row["RecordSource"] if "RecordSource" in row.keys() else "user"
+            self.tree.insert(
+                "",
+                tk.END,
+                values=(
+                    row["UnitId"],
+                    row["Code"],
+                    row["Name"],
+                    row["DefaultFlag"],
+                    record_source_label_pl(src),
+                ),
+            )
 
     def clear_form(self):
         self.var_id.set(""); self.var_code.set(""); self.var_name.set(""); self.var_default.set(0)

@@ -4,6 +4,7 @@ from ..models import (
     create_organization, get_organization_all, get_organization_by_id,
     update_organization, delete_organization, get_address_all
 )
+from ..models.record_source import record_source_label_pl
 
 PADX = 8
 PADY = 6
@@ -106,26 +107,35 @@ class OrganizationCrud(tk.Toplevel):
         self.tree = ttk.Treeview(
             table_frame,
             columns=(
-                "OrganizationId", "Name", "Phone", "Email",
-                "OrgNbr1", "OrgNbr2", "OrgNbr3",
-                "AddressCity", "AddressCountry",
+                "OrganizationId",
+                "Name",
+                "Phone",
+                "Email",
+                "OrgNbr1",
+                "OrgNbr2",
+                "OrgNbr3",
+                "AddressCity",
+                "AddressCountry",
                 "BankAccountNbr",
-                "AddressId", "AdditionalAddressId"   # ukryte
+                "RecordSource",
+                "AddressId",
+                "AdditionalAddressId",
             ),
-            show="headings"
+            show="headings",
         )
 
         cols = [
             ("OrganizationId", "ID", 60, tk.E),
-            ("Name", "Nazwa", 260, tk.W),
-            ("Phone", "Telefon", 140, tk.W),
-            ("Email", "Email", 220, tk.W),
-            ("OrgNbr1", "NIP", 120, tk.W),
-            ("OrgNbr2", "REGON", 120, tk.W),
-            ("OrgNbr3", "PESEL", 120, tk.W),
-            ("AddressCity", "Miasto", 140, tk.W),
-            ("AddressCountry", "Kraj", 120, tk.W),
-            ("BankAccountNbr", "Konto", 220, tk.W),
+            ("Name", "Nazwa", 220, tk.W),
+            ("Phone", "Telefon", 120, tk.W),
+            ("Email", "Email", 180, tk.W),
+            ("OrgNbr1", "NIP", 100, tk.W),
+            ("OrgNbr2", "REGON", 100, tk.W),
+            ("OrgNbr3", "PESEL", 100, tk.W),
+            ("AddressCity", "Miasto", 120, tk.W),
+            ("AddressCountry", "Kraj", 100, tk.W),
+            ("BankAccountNbr", "Konto", 180, tk.W),
+            ("RecordSource", "Źródło", 100, tk.W),
             # ukryte:
             ("AddressId", "AddressId", 0, tk.W),
             ("AdditionalAddressId", "AdditionalAddressId", 0, tk.W),
@@ -173,6 +183,7 @@ class OrganizationCrud(tk.Toplevel):
             self.tree.delete(i)
 
         for r in get_organization_all():
+            src = _g(r, "RecordSource", "user")
             self.tree.insert(
                 "",
                 tk.END,
@@ -181,14 +192,15 @@ class OrganizationCrud(tk.Toplevel):
                     _g(r, "Name", ""),
                     _g(r, "Phone", ""),
                     _g(r, "Email", ""),
-                    _g(r, "OrgNbr1", ""),        # NIP
-                    _g(r, "OrgNbr2", ""),        # REGON
-                    _g(r, "OrgNbr3", ""),        # PESEL
+                    _g(r, "OrgNbr1", ""),
+                    _g(r, "OrgNbr2", ""),
+                    _g(r, "OrgNbr3", ""),
                     _g(r, "AddressCity", ""),
                     _g(r, "AddressCountry", ""),
                     _g(r, "BankAccountNbr", ""),
-                    _g(r, "AddressId", ""),          # ukryte ID
-                    _g(r, "AdditionalAddressId", ""),# ukryte ID
+                    record_source_label_pl(src),
+                    _g(r, "AddressId", ""),
+                    _g(r, "AdditionalAddressId", ""),
                 ),
             )
 
@@ -265,9 +277,9 @@ class OrganizationCrud(tk.Toplevel):
         self.var_org3.set(values[6])   # PESEL
         self.var_bank.set(values[9])
 
-        # Odtwórz comboboxy na podstawie ukrytych ID
-        addr_id = values[10]
-        add_addr_id = values[11]
+        # Odtwórz comboboxy na podstawie ukrytych ID (po kolumnie Źródło)
+        addr_id = values[11]
+        add_addr_id = values[12]
 
         try:
             addr_id = int(addr_id) if addr_id not in ("", None) else None

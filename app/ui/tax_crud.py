@@ -8,6 +8,7 @@ from ..models import (
     delete_tax,
     set_default_tax,
 )
+from ..models.record_source import record_source_label_pl
 
 
 class TaxCrud(tk.Toplevel):
@@ -46,8 +47,14 @@ class TaxCrud(tk.Toplevel):
         ttk.Button(btns, text="Wyczyść formularz", command=self.clear_form).pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="Odśwież", command=self.refresh_table).pack(side=tk.RIGHT, padx=5)
 
-        self.tree = ttk.Treeview(self, columns=("TaxId", "Name", "Value", "Default"), show="headings")
-        for col, text, w, anchor in (("TaxId","TaxId",70,tk.E),("Name","Name",260,tk.W),("Value","Value",80,tk.E),("Default","Default",80,tk.CENTER)):
+        self.tree = ttk.Treeview(self, columns=("TaxId", "Name", "Value", "Default", "Source"), show="headings")
+        for col, text, w, anchor in (
+            ("TaxId", "TaxId", 70, tk.E),
+            ("Name", "Name", 220, tk.W),
+            ("Value", "Value", 80, tk.E),
+            ("Default", "Default", 70, tk.CENTER),
+            ("Source", "Źródło", 100, tk.W),
+        ):
             self.tree.heading(col, text=text)
             self.tree.column(col, width=w, anchor=anchor)
         self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0,10))
@@ -57,7 +64,18 @@ class TaxCrud(tk.Toplevel):
         for i in self.tree.get_children():
             self.tree.delete(i)
         for row in get_tax_all():
-            self.tree.insert("", tk.END, values=(row["TaxId"], row["Name"], f"{float(row['Value']):.2f}", row["DefaultFlag"]))
+            src = row["RecordSource"] if "RecordSource" in row.keys() else "user"
+            self.tree.insert(
+                "",
+                tk.END,
+                values=(
+                    row["TaxId"],
+                    row["Name"],
+                    f"{float(row['Value']):.2f}",
+                    row["DefaultFlag"],
+                    record_source_label_pl(src),
+                ),
+            )
 
     def clear_form(self):
         self.var_id.set(""); self.var_name.set(""); self.var_value.set(""); self.var_default.set(0)
@@ -67,7 +85,10 @@ class TaxCrud(tk.Toplevel):
         if not sel:
             return
         values = self.tree.item(sel[0], "values")
-        self.var_id.set(values[0]); self.var_name.set(values[1]); self.var_value.set(values[2]); self.var_default.set(int(values[3]))
+        self.var_id.set(values[0])
+        self.var_name.set(values[1])
+        self.var_value.set(values[2])
+        self.var_default.set(int(values[3]))
 
     def _validate_inputs(self, require_id=False) -> bool:
         if require_id and not self.var_id.get():

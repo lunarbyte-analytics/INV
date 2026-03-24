@@ -7,6 +7,7 @@ from ..models import (
     update_address,
     delete_address,
 )
+from ..models.record_source import record_source_label_pl
 
 class AddressCrud(tk.Toplevel):
     def __init__(self, master=None):
@@ -65,17 +66,27 @@ class AddressCrud(tk.Toplevel):
         # Table
         self.tree = ttk.Treeview(
             self,
-            columns=("AddressId", "AddressType", "StreetName", "StreetNumber", "ZipCode", "City", "Country"),
+            columns=(
+                "AddressId",
+                "AddressType",
+                "StreetName",
+                "StreetNumber",
+                "ZipCode",
+                "City",
+                "Country",
+                "Source",
+            ),
             show="headings",
         )
         for col, text, w, anchor in (
-            ("AddressId", "AddressId", 90, tk.E),
-            ("AddressType", "AddressType", 120, tk.W),
-            ("StreetName", "StreetName", 180, tk.W),
-            ("StreetNumber", "StreetNumber", 100, tk.W),
-            ("ZipCode", "ZipCode", 100, tk.W),
-            ("City", "City", 160, tk.W),
-            ("Country", "Country", 160, tk.W),
+            ("AddressId", "AddressId", 70, tk.E),
+            ("AddressType", "AddressType", 100, tk.W),
+            ("StreetName", "StreetName", 140, tk.W),
+            ("StreetNumber", "StreetNumber", 70, tk.W),
+            ("ZipCode", "ZipCode", 80, tk.W),
+            ("City", "City", 120, tk.W),
+            ("Country", "Country", 100, tk.W),
+            ("Source", "Źródło", 90, tk.W),
         ):
             self.tree.heading(col, text=text)
             self.tree.column(col, width=w, anchor=anchor)
@@ -86,6 +97,7 @@ class AddressCrud(tk.Toplevel):
         for i in self.tree.get_children():
             self.tree.delete(i)
         for r in get_address_all():
+            src = r["RecordSource"] if "RecordSource" in r.keys() else "user"
             self.tree.insert(
                 "",
                 tk.END,
@@ -97,6 +109,7 @@ class AddressCrud(tk.Toplevel):
                     r["ZipCode"],
                     r["City"],
                     r["Country"],
+                    record_source_label_pl(src),
                 ),
             )
 

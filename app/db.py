@@ -263,3 +263,23 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_invoiceksefsubmission_invoice "
                 "ON InvoiceKsefSubmission(InvoiceId);"
             )
+
+        _migrate_record_source_columns(cur)
+
+
+def _migrate_record_source_columns(cur) -> None:
+    """Dodaje RecordSource do słowników (istniejące bazy: domyślnie 'user')."""
+    for table in ("Tax", "Unit", "Address", "Organization", "Service"):
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",
+            (table,),
+        )
+        if not cur.fetchone():
+            continue
+        cur.execute(f"PRAGMA table_info({table})")
+        cols = [r[1] for r in cur.fetchall()]
+        if "RecordSource" in cols:
+            continue
+        cur.execute(
+            f"ALTER TABLE {table} ADD COLUMN RecordSource TEXT NOT NULL DEFAULT 'user';"
+        )

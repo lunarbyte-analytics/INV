@@ -1,14 +1,23 @@
 from typing import Optional
 import sqlite3
 from ..db import tx
+from .record_source import RECORD_SOURCE_USER
 
 
-def create_service(unit_id: int, tax_id: int, name: str, unit_price: float, version: Optional[str] = None) -> int:
+def create_service(
+    unit_id: int,
+    tax_id: int,
+    name: str,
+    unit_price: float,
+    version: Optional[str] = None,
+    *,
+    record_source: str = RECORD_SOURCE_USER,
+) -> int:
     with tx() as conn:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO Service (UnitId, TaxId, Name, UnitPrice, Version) VALUES (?, ?, ?, ?, ?);",
-            (unit_id, tax_id, name, float(unit_price), version),
+            "INSERT INTO Service (UnitId, TaxId, Name, UnitPrice, Version, RecordSource) VALUES (?, ?, ?, ?, ?, ?);",
+            (unit_id, tax_id, name, float(unit_price), version, record_source),
         )
         return cur.lastrowid
 
@@ -19,7 +28,7 @@ def get_service_all():
         # join for readable names
         cur.execute(
             """
-            SELECT s.ServiceId, s.Name, s.UnitPrice, s.Version,
+            SELECT s.ServiceId, s.Name, s.UnitPrice, s.Version, s.RecordSource,
                    u.UnitId, u.Code as UnitCode, u.Name as UnitName,
                    t.TaxId, t.Name as TaxName, t.Value as TaxValue
             FROM Service s
@@ -36,7 +45,7 @@ def get_service_by_id(service_id: int) -> Optional[sqlite3.Row]:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT s.ServiceId, s.Name, s.UnitPrice, s.Version,
+            SELECT s.ServiceId, s.Name, s.UnitPrice, s.Version, s.RecordSource,
                    u.UnitId, u.Code as UnitCode, u.Name as UnitName,
                    t.TaxId, t.Name as TaxName, t.Value as TaxValue
             FROM Service s
