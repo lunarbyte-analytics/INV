@@ -1,10 +1,27 @@
+import threading
 import tkinter as tk
-from tkinter import ttk, messagebox
-from ..models import (
-    create_organization, get_organization_all, get_organization_by_id,
-    update_organization, delete_organization, get_address_all
+from tkinter import ttk, messagebox, simpledialog
+
+from ..ceidg.hd_client import (
+    CeidgHdError,
+    CeidgNoDataError,
+    fetch_firma_by_nip,
+    flat_firma_for_org,
+    get_ceidg_hd_token,
+    merge_pref,
+    normalize_nip_digits,
 )
-from ..models.record_source import record_source_label_pl
+from ..models import (
+    create_organization,
+    delete_organization,
+    get_address_all,
+    get_address_by_id,
+    get_organization_all,
+    get_organization_by_id,
+    update_address,
+    update_organization,
+)
+from ..models.record_source import RECORD_SOURCE_CEIDG_IMPORT, RECORD_SOURCE_USER, record_source_label_pl
 
 PADX = 8
 PADY = 6
@@ -69,9 +86,16 @@ class OrganizationCrud(tk.Toplevel):
 
         # NIP / REGON / PESEL
         ttk.Label(frm, text="NIP:").grid(row=2, column=0, sticky=tk.E, padx=PADX, pady=PADY)
+        nip_row = ttk.Frame(frm)
+        nip_row.grid(row=2, column=1, sticky="ew", padx=PADX, pady=PADY)
+        nip_row.columnconfigure(0, weight=1)
         self.var_org1 = tk.StringVar()
-        ttk.Entry(frm, textvariable=self.var_org1)\
-            .grid(row=2, column=1, sticky="ew", padx=PADX, pady=PADY)
+        ttk.Entry(nip_row, textvariable=self.var_org1).grid(row=0, column=0, sticky="ew")
+        ttk.Button(
+            nip_row,
+            text="Import z CEIDG (API HD)",
+            command=self.on_import_ceidg,
+        ).grid(row=0, column=1, padx=(8, 0))
 
         ttk.Label(frm, text="REGON:").grid(row=2, column=2, sticky=tk.E, padx=PADX, pady=PADY)
         self.var_org2 = tk.StringVar()
@@ -292,3 +316,150 @@ class OrganizationCrud(tk.Toplevel):
 
         self.var_addr.set(self._label_by_addr.get(addr_id, "") if addr_id is not None else "")
         self.var_add_addr.set(self._label_by_addr.get(add_addr_id, "") if add_addr_id is not None else "")
+
+    def on_import_ceidg(self):
+        raw = (self.var_org1.get() or "").strip()
+        if not raw:
+            raw = simpledialog.askstring(
+                "NIP",
+                "Podaj NIP (10 cyfr) do zapytania w Hurtowni danych CEIDG:",
+                parent=self,
+            )
+            if not raw:
+                return
+            self.var_org1.set(raw.strip())
+
+        try:
+            normalize_nip_digits(self.var_org1.get())
+        except ValueError as e:
+            messagebox.showwarning("NIP", str(e), parent=self)
+            return
+
+        if not get_ceidg_hd_token():
+            messagebox.showwarning(
+                "Token API",
+                "Brak tokenu Hurtowni danych CEIDG.\n\n"
+                "Zarejestruj się na https://dane.biznes.gov.pl/ i ustaw zmienną środowiskową:\n"
+                "  CEIDG_HD_API_TOKEN=<token JWT z portalu>\n\n"
+                "(Alternatywnie: BIZNES_GOV_HD_TOKEN)",
+                parent=self,
+            )
+            return
+
+        nip_query = self.var_org1.get()
+
+        def work():
+            try:
+                firma = fetch_firma_by_nip(nip_query)
+                flat = flat_firma_for_org(firma)
+                self.after(0, lambda: self._apply_ceidg_import(flat))
+            except CeidgNoDataError as e:
+                self.after(0, lambda m=str(e): messagebox.showinfo("CEIDG", m, parent=self))
+            except CeidgHdError as e:
+                self.after(0, lambda m=str(e): messagebox.showerror("CEIDG", m, parent=self))
+            except Exception as e:
+                self.after(0, lambda m=str(e): messagebox.showerror("CEIDG", m, parent=self))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _apply_ceidg_import(self, flat: dict):
+        """Uzupełnia puste pola formularza i — jeśli jest zapisany rekord — puste pola w bazie."""
+        self._merge_ceidg_into_form(flat)
+        vid = (self.var_id.get() or "").strip()
+        if not vid:
+            messagebox.showinfo(
+                "CEIDG",
+                "Uzupełniono brakujące pola w formularzu. Kliknij „Dodaj”, aby zapisać nową organizację.",
+                parent=self,
+            )
+            return
+        try:
+            oid = int(vid)
+        except ValueError:
+            return
+
+        did_db = self._merge_ceidg_into_db(oid, flat)
+        self._load_lookups()
+        self.refresh_table()
+        for item in self.tree.get_children():
+            vals = self.tree.item(item, "values")
+            if vals and str(vals[0]) == str(oid):
+                self.tree.selection_set(item)
+                self.tree.focus(item)
+                self.tree.see(item)
+                self.on_select_row()
+                break
+
+        if did_db:
+            messagebox.showinfo(
+                "CEIDG",
+                "Uzupełniono brakujące dane z Hurtowni CEIDG (zapis w bazie).",
+                parent=self,
+            )
+        else:
+            messagebox.showinfo(
+                "CEIDG",
+                "W bazie nie było pustych pól do uzupełnienia. "
+                "Formularz uzupełniono tylko tam, gdzie pola były puste.",
+                parent=self,
+            )
+
+    def _merge_ceidg_into_form(self, flat: dict):
+        def set_if_empty(var: tk.StringVar, val: str | None):
+            m = merge_pref(var.get(), val)
+            if m is not None:
+                var.set(m)
+
+        set_if_empty(self.var_name, flat.get("name"))
+        set_if_empty(self.var_phone, flat.get("phone"))
+        set_if_empty(self.var_email, flat.get("email"))
+        set_if_empty(self.var_org1, flat.get("org_nip"))
+        set_if_empty(self.var_org2, flat.get("org_regon"))
+
+    def _merge_ceidg_into_db(self, org_id: int, flat: dict) -> bool:
+        """Zwraca True, jeśli wykonano UPDATE w bazie."""
+        org = get_organization_by_id(org_id)
+        if not org:
+            return False
+
+        org_updates: dict = {}
+        for col, key in (
+            ("Name", "name"),
+            ("Phone", "phone"),
+            ("Email", "email"),
+            ("OrgNbr1", "org_nip"),
+            ("OrgNbr2", "org_regon"),
+        ):
+            m = merge_pref(org[col], flat.get(key))
+            if m is not None:
+                org_updates[col] = m
+
+        rs = org["RecordSource"] if "RecordSource" in org.keys() else None
+        should_tag = rs in (None, "", RECORD_SOURCE_USER)
+
+        addr_id = org["AddressId"]
+        addr = get_address_by_id(addr_id) if addr_id else None
+        addr_updates: dict = {}
+        if addr:
+            for sql_col, ukw, flat_key in (
+                ("StreetName", "street_name", "street_name"),
+                ("StreetNumber", "street_number", "street_number"),
+                ("ZipCode", "zip_code", "zip_code"),
+                ("City", "city", "city"),
+                ("Country", "country", "country"),
+            ):
+                m = merge_pref(addr[sql_col], flat.get(flat_key))
+                if m is not None:
+                    addr_updates[ukw] = m
+
+        if should_tag and (org_updates or addr_updates):
+            org_updates["RecordSource"] = RECORD_SOURCE_CEIDG_IMPORT
+
+        did = False
+        if addr_updates:
+            if update_address(addr_id, **addr_updates):
+                did = True
+        if org_updates:
+            if update_organization(org_id, **org_updates):
+                did = True
+        return did
