@@ -265,6 +265,20 @@ def init_db():
             )
 
         _migrate_record_source_columns(cur)
+        _migrate_invoice_correction_columns(cur)
+
+
+def _migrate_invoice_correction_columns(cur) -> None:
+    """Faktura korygująca: powiązanie z fakturą pierwotną (KSeF FA(2) KOR)."""
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Invoice';")
+    if not cur.fetchone():
+        return
+    cur.execute("PRAGMA table_info(Invoice)")
+    cols = [r[1] for r in cur.fetchall()]
+    if "CorrectedInvoiceId" not in cols:
+        cur.execute("ALTER TABLE Invoice ADD COLUMN CorrectedInvoiceId INTEGER NULL;")
+    if "CorrectionReason" not in cols:
+        cur.execute("ALTER TABLE Invoice ADD COLUMN CorrectionReason TEXT NULL;")
 
 
 def _migrate_record_source_columns(cur) -> None:

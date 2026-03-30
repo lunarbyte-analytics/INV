@@ -296,6 +296,11 @@ class MainApp(tk.Tk):
             text="Faktury zakupowe z KSeF",
             command=self.open_ksef_purchase_window,
         ).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(
+            btn_panel,
+            text="Nowa korekta do faktury…",
+            command=self.open_correction_invoice,
+        ).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(btn_panel, text="Odśwież listę", command=self.refresh_invoice_list).pack(side=tk.RIGHT, padx=10)
 
         try:
@@ -375,6 +380,23 @@ class MainApp(tk.Tk):
             self._invoice_win.focus_set()
             return
         self._invoice_win = InvoiceCrud(self)
+        self._invoice_win.focus_set()
+
+    def open_correction_invoice(self):
+        """Nowa faktura typu Korekta, powiązana z zaznaczoną fakturą pierwotną."""
+        base_id = self._get_selected_invoice_id()
+        if base_id is None:
+            messagebox.showwarning(
+                "Korekta",
+                "Zaznacz na liście fakturę pierwotną (tę, którą korygujesz).",
+                parent=self,
+            )
+            return
+        if getattr(self, "_invoice_win", None) is not None and self._invoice_win.winfo_exists():
+            self._invoice_win.deiconify()
+        else:
+            self._invoice_win = InvoiceCrud(self)
+        self._invoice_win.prepare_correction_from(base_id)
         self._invoice_win.focus_set()
 
     def open_tax_window(self):

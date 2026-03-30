@@ -82,6 +82,11 @@ def _xml_escape_text(text: str) -> str:
     )
 
 
+def invoice_header_is_kor(header: dict) -> bool:
+    """Faktura korygująca FA(2) — RodzajFaktury KOR."""
+    return "korekt" in (header.get("TypeName") or "").lower()
+
+
 def tax_rate_to_stawka(tax: float) -> str:
     t = int(round(float(tax)))
     allowed = (23, 22, 8, 7, 5, 0)
@@ -94,20 +99,16 @@ def tax_rate_to_stawka(tax: float) -> str:
 
 def compute_fa2_lines(
     header: dict, details: list[dict]
-) -> tuple[list[dict], Decimal, dict[str, tuple[Decimal, Decimal]], str, str]:
+) -> tuple[list[dict], Decimal, dict[str, tuple[Decimal, Decimal]], str, str, bool]:
     """
     Oblicza pozycje i sumy wg reguł FA(2) (te same co w XML).
-    Zwraca: lines_calc, suma brutto (P_15), słownik agregacji stawek, NIP sprzedawcy, NIP nabywcy.
+    Dla faktury korygującej (KOR) kwoty w pozycjach i sumach to różnice (mogą być ujemne).
+    Zwraca: lines_calc, suma brutto (P_15), agregacja stawek, NIP sprzedawcy, NIP nabywcy, is_kor.
     """
     if not details:
         raise ValueError("Faktura nie ma pozycji — brak danych do wysyłki KSeF.")
 
-    type_name = (header.get("TypeName") or "").lower()
-    if "korekt" in type_name:
-        raise ValueError(
-            "Wysyłka do KSeF: typ „faktura korygująca” (FA — KOR) wymaga rozszerzonej struktury XML i nie jest "
-            "obsługiwany przez ten generator. Użyj typu „Faktura VAT” albo przygotuj XML zgodnie z FA(2)."
-        )
+    is_kor = invoice_header_is_kor(header)
 
     nip_sprzed = _nip_digits(header.get("CoNIP"))
     if len(nip_sprzed) != 10:
@@ -161,12 +162,42 @@ def compute_fa2_lines(
             }
         )
 
-    return lines_calc, gross_sum, agg, nip_sprzed, nip_naby
+    return lines_calc, gross_sum, agg, nip_sprzed, nip_naby, is_kor
+
+
+def _emit_agg_p13(
+    fa: ET.Element, agg: dict[str, tuple[Decimal, Decimal]], *, is_kor: bool
+) -> None:
+    """P_13/P_14 dla stawek — dla KOR emituj także wartości ujemne (różnice)."""
+    n23, v23 = agg["23"]
+
+    def _pair(tag_net: str, tag_vat: str, n: Decimal, v: Decimal) -> None:
+        if is_kor:
+            if n == 0 and v == 0:
+                return
+        else:
+            if n <= 0 and v <= 0:
+                return
+        ET.SubElement(fa, Q(tag_net)).text = _q2(n)
+        ET.SubElement(fa, Q(tag_vat)).text = _q2(v)
+
+    _pair("P_13_1", "P_14_1", n23, v23)
+    n8, v8 = agg["8"]
+    _pair("P_13_2", "P_14_2", n8, v8)
+    n5, v5 = agg["5"]
+    _pair("P_13_3", "P_14_3", n5, v5)
+    n0, _v0 = agg["0"]
+    if is_kor:
+        if n0 != 0:
+            ET.SubElement(fa, Q("P_13_6_1")).text = _q2(n0)
+    else:
+        if n0 > 0:
+            ET.SubElement(fa, Q("P_13_6_1")).text = _q2(n0)
 
 
 def build_fa2_invoice_xml(header: dict, details: list[dict]) -> str:
     """Zwraca XML jako str (UTF-8, z deklaracją)."""
-    lines_calc, gross_sum, agg, nip_sprzed, nip_naby = compute_fa2_lines(header, details)
+    lines_calc, gross_sum, agg, nip_sprzed, nip_naby, is_kor = compute_fa2_lines(header, details)
 
     ET.register_namespace("", NS)
 
@@ -231,30 +262,7 @@ def build_fa2_invoice_xml(header: dict, details: list[dict]) -> str:
     if d_sales != d_issue:
         ET.SubElement(fa, Q("P_6")).text = d_sales
 
-    n23, v23 = agg["23"]
-    if n23 > 0 or v23 > 0:
-        s = ET.SubElement(fa, Q("P_13_1"))
-        s.text = _q2(n23)
-        s = ET.SubElement(fa, Q("P_14_1"))
-        s.text = _q2(v23)
-
-    n8, v8 = agg["8"]
-    if n8 > 0 or v8 > 0:
-        s = ET.SubElement(fa, Q("P_13_2"))
-        s.text = _q2(n8)
-        s = ET.SubElement(fa, Q("P_14_2"))
-        s.text = _q2(v8)
-
-    n5, v5 = agg["5"]
-    if n5 > 0 or v5 > 0:
-        s = ET.SubElement(fa, Q("P_13_3"))
-        s.text = _q2(n5)
-        s = ET.SubElement(fa, Q("P_14_3"))
-        s.text = _q2(v5)
-
-    n0, _v0 = agg["0"]
-    if n0 > 0:
-        ET.SubElement(fa, Q("P_13_6_1")).text = _q2(n0)
+    _emit_agg_p13(fa, agg, is_kor=is_kor)
 
     ET.SubElement(fa, Q("P_15")).text = _q2(gross_sum)
 
@@ -271,7 +279,26 @@ def build_fa2_invoice_xml(header: dict, details: list[dict]) -> str:
     pm = ET.SubElement(ad, Q("PMarzy"))
     ET.SubElement(pm, Q("P_PMarzyN")).text = "1"
 
-    ET.SubElement(fa, Q("RodzajFaktury")).text = "VAT"
+    ET.SubElement(fa, Q("RodzajFaktury")).text = "KOR" if is_kor else "VAT"
+    if is_kor:
+        rsn = (header.get("CorrectionReason") or "").strip()
+        if rsn:
+            ET.SubElement(fa, Q("PrzyczynaKorekty")).text = _xml_escape_text(rsn[:512])
+        n_orig = (header.get("CorrectedOriginalName") or "").strip()
+        d_orig = _date_iso(header.get("CorrectedOriginalCreateDate"))
+        if not n_orig:
+            raise ValueError(
+                "Faktura korygująca: w nagłówku brak danych faktury pierwotnej — ustaw „ID faktury korygowanej” i zapisz."
+            )
+        dk = ET.SubElement(fa, Q("DaneFaKorygowanej"))
+        ET.SubElement(dk, Q("DataWystFaKorygowanej")).text = d_orig
+        ET.SubElement(dk, Q("NrFaKorygowanej")).text = _xml_escape_text(n_orig[:256])
+        kref = (header.get("CorrectedOriginalKsefRef") or "").strip()
+        if kref:
+            ET.SubElement(dk, Q("NrKSeF")).text = "1"
+            ET.SubElement(dk, Q("NrKSeFFaKorygowanej")).text = _xml_escape_text(kref[:512])
+        else:
+            ET.SubElement(dk, Q("NrKSeFN")).text = "1"
 
     for i, ln in enumerate(lines_calc, start=1):
         fw = ET.SubElement(fa, Q("FaWiersz"))

@@ -10,6 +10,7 @@ from ..models.invoice import (
     create_invoice, update_invoice, delete_invoice, invoice_can_be_deleted,
     get_invoice_full, add_detail, update_detail, delete_detail,
     get_ksef_submissions_for_invoice,
+    validate_correction_link,
 )
 
 ISO_FMT = "%Y-%m-%d"
@@ -69,6 +70,8 @@ class InvoiceCrud(tk.Toplevel):
         self.var_create_date = tk.StringVar()
         self.var_sales_date = tk.StringVar()
         self.var_payment_date = tk.StringVar()
+        self.var_corrected_id = tk.StringVar()
+        self.var_correction_reason = tk.StringVar()
 
         # details
         self.var_detail_id = tk.StringVar()
@@ -138,6 +141,15 @@ class InvoiceCrud(tk.Toplevel):
         ttk.Label(frm, text="Termin płat.:").grid(row=3, column=4, sticky=tk.E, padx=PADX, pady=PADY)
         ttk.Entry(frm, textvariable=self.var_payment_date, width=12)\
             .grid(row=3, column=5, sticky="w", padx=PADX, pady=PADY)
+
+        ttk.Label(frm, text="Koryguje fakturę (ID):").grid(row=4, column=0, sticky=tk.E, padx=PADX, pady=PADY)
+        ttk.Entry(frm, textvariable=self.var_corrected_id, width=12).grid(
+            row=4, column=1, sticky="w", padx=PADX, pady=PADY
+        )
+        ttk.Label(frm, text="Przyczyna korekty:").grid(row=4, column=2, sticky=tk.E, padx=PADX, pady=PADY)
+        ttk.Entry(frm, textvariable=self.var_correction_reason, width=52).grid(
+            row=4, column=3, columnspan=5, sticky="ew", padx=PADX, pady=PADY
+        )
 
         self._frm_ksef = ttk.LabelFrame(self, text="KSeF — historia wysyłek (API)")
         self._frm_ksef.pack(fill=tk.X, padx=10, pady=(0, 10))
@@ -279,6 +291,8 @@ class InvoiceCrud(tk.Toplevel):
         self.var_create_date.set(today)
         self.var_sales_date.set(today)
         self.var_payment_date.set(today)
+        self.var_corrected_id.set("")
+        self.var_correction_reason.set("")
         # details form
         self.var_detail_id.set("")
         self.var_service.set("")
@@ -423,6 +437,16 @@ class InvoiceCrud(tk.Toplevel):
         self.var_status.set(self._status_rev.get(header["StatusId"], ""))
         self.var_type.set(self._type_rev.get(header["TypeId"], ""))
 
+        cid = header.get("CorrectedInvoiceId")
+        if cid is not None:
+            try:
+                self.var_corrected_id.set(str(int(cid)))
+            except (TypeError, ValueError):
+                self.var_corrected_id.set("")
+        else:
+            self.var_corrected_id.set("")
+        self.var_correction_reason.set(header.get("CorrectionReason") or "")
+
         # Detale -> tabela
         print(f"[DEBUG] load_invoice: details rows = {len(details)} for id={invoice_id}")
         self._fill_details_table(details)
@@ -430,6 +454,27 @@ class InvoiceCrud(tk.Toplevel):
         self._loaded_customer_id = int(header["CustomerId"])
         self._refresh_ksef_panel(invoice_id)
         self._refresh_delete_button_state()
+
+    def prepare_correction_from(self, base_invoice_id: int):
+        """Nowa faktura typu Korekta, powiązana z fakturą base_invoice_id (lista główna)."""
+        self.on_new()
+        self.var_corrected_id.set(str(int(base_invoice_id)))
+        kname = next((n for n in self._type_map if "korekt" in n.lower()), None)
+        if kname:
+            self.var_type.set(kname)
+        h, _ = get_invoice_full(int(base_invoice_id))
+        if not h:
+            messagebox.showerror("Korekta", f"Nie znaleziono faktury ID={base_invoice_id}.")
+            return
+        self.var_company.set(self._org_rev.get(h["CompanyId"], ""))
+        self.var_customer.set(self._org_rev.get(h["CustomerId"], ""))
+        self.var_name.set("")
+        self.var_invoice_id.set("")
+        self.var_create_date.set(self._today())
+        self.var_sales_date.set(self._today())
+        self.var_payment_date.set(self._today())
+        self._clear_details_table()
+        self._refresh_ksef_panel(None)
 
     def on_new(self):
         """Przygotuj czysty formularz."""
@@ -441,6 +486,31 @@ class InvoiceCrud(tk.Toplevel):
         if not ids:
             return
         name = self.var_name.get().strip() or None
+        type_name = (self.var_type.get() or "").lower()
+        is_kor = "korekt" in type_name
+        corr_id = None
+        reason = (self.var_correction_reason.get() or "").strip() or None
+        if is_kor:
+            raw = (self.var_corrected_id.get() or "").strip()
+            if not raw:
+                messagebox.showwarning("Walidacja", "Typ „Korekta”: wpisz ID faktury korygowanej.")
+                return
+            try:
+                corr_id = int(raw)
+            except ValueError:
+                messagebox.showwarning("Walidacja", "ID faktury korygowanej musi być liczbą całkowitą.")
+                return
+            try:
+                cur_id = int(self.var_invoice_id.get()) if self.var_invoice_id.get() else None
+                validate_correction_link(
+                    company_id=ids["CompanyId"],
+                    customer_id=ids["CustomerId"],
+                    corrected_invoice_id=corr_id,
+                    current_invoice_id=cur_id,
+                )
+            except ValueError as e:
+                messagebox.showwarning("Korekta", str(e))
+                return
         try:
             if not self.var_invoice_id.get():
                 # CREATE
@@ -455,6 +525,8 @@ class InvoiceCrud(tk.Toplevel):
                     create_date=self.var_create_date.get().strip() or None,
                     sales_date=self.var_sales_date.get().strip() or None,
                     payment_date=self.var_payment_date.get().strip() or None,
+                    corrected_invoice_id=corr_id if is_kor else None,
+                    correction_reason=reason if is_kor else None,
                 )
                 self.var_invoice_id.set(str(new_id))
                 self._loaded_company_id = int(ids["CompanyId"])
@@ -477,6 +549,8 @@ class InvoiceCrud(tk.Toplevel):
                     CreateDate=self.var_create_date.get().strip(),
                     SalesDate=self.var_sales_date.get().strip(),
                     PaymentDate=self.var_payment_date.get().strip(),
+                    CorrectedInvoiceId=corr_id if is_kor else None,
+                    CorrectionReason=reason if is_kor else None,
                 )
                 if ok:
                     self._loaded_company_id = int(ids["CompanyId"])
