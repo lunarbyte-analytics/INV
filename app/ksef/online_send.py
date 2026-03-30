@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import re
 import time
 from typing import Any
 from urllib.parse import quote
@@ -13,6 +14,48 @@ from .http_json import KsefHttpError, request_json
 
 # Kody „w toku” (GET /sessions/.../invoices/...) — należy ponawiać odpytanie.
 _PENDING_INVOICE_STATUS_CODES = frozenset({100, 150})
+
+# Wzorzec KsefNumber z OpenAPI KSeF 2.0 (TNumerKSeF) — odróżnia numer KSeF od numeru ref. sesji (…-EE-…).
+_KSEF_NUMBER_RE = re.compile(
+    r"^([1-9](\d[1-9]|[1-9]\d)\d{7})-(20[2-9][0-9]|2[1-9]\d{2}|[3-9]\d{3})"
+    r"(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])-([0-9A-F]{6})-?([0-9A-F]{6})-([0-9A-F]{2})$",
+    re.IGNORECASE,
+)
+
+
+def extract_ksef_number_from_status(data: dict[str, Any] | None) -> str | None:
+    """
+    Numer KSeF (TNumerKSeF) jest w odpowiedzi GET statusu faktury w sesji na poziomie głównym
+    (SessionInvoiceStatusResponse.ksefNumber), nie wewnątrz statusu.
+    """
+    if not isinstance(data, dict):
+        return None
+    for key in ("ksefNumber", "KsefNumber"):
+        v = data.get(key)
+        if v is not None:
+            s = str(v).strip()
+            if s:
+                return s
+    for nest in ("invoice", "invoiceStatus"):
+        inner = data.get(nest)
+        if isinstance(inner, dict):
+            for key in ("ksefNumber", "KsefNumber"):
+                v = inner.get(key)
+                if v is not None:
+                    s = str(v).strip()
+                    if s:
+                        return s
+    return None
+
+
+def is_valid_ksef_number_format(s: str) -> bool:
+    """True, jeśli łańcuch wygląda na numer KSeF z API (nie numer ref. faktury w sesji …-EE-…)."""
+    t = (s or "").strip()
+    if not t:
+        return False
+    if "-EE-" in t.upper():
+        return False
+    return bool(_KSEF_NUMBER_RE.match(t))
 
 
 def _b64(data: bytes) -> str:
@@ -121,6 +164,7 @@ def wait_for_session_invoice_result(
     last_err: BaseException | None = None
     poll_n = 0
     last_logged_code: int | None = None
+    logged_200_awaiting_knr = False
     while time.monotonic() < deadline:
         try:
             poll_n += 1
@@ -139,6 +183,15 @@ def wait_for_session_invoice_result(
                         f"wait_session_invoice: poll #{poll_n} status.code={code} (w toku), czekam…"
                     )
                     last_logged_code = code
+                time.sleep(interval_s)
+                continue
+            # Sukces (200) może przyjść zanim pole ksefNumber zostanie uzupełnione — dalej polujemy.
+            if code == 200 and not extract_ksef_number_from_status(data):
+                if not logged_200_awaiting_knr:
+                    ksef_debug(
+                        "wait_session_invoice: status.code=200, brak ksefNumber (jeszcze), czekam…"
+                    )
+                    logged_200_awaiting_knr = True
                 time.sleep(interval_s)
                 continue
             ksef_debug(

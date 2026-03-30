@@ -13,7 +13,7 @@ from .debug_log import ksef_debug
 from .fa_validate import validate_invoice_for_ksef, validate_xml_size_fits_ksef
 from .fa_xml import build_fa2_invoice_xml
 from .http_json import KsefHttpError
-from .online_send import send_invoice_xml
+from .online_send import extract_ksef_number_from_status, is_valid_ksef_number_format, send_invoice_xml
 
 
 @dataclass
@@ -83,7 +83,7 @@ def send_invoice_to_ksef(invoice_id: int) -> KsefSubmitResult:
     )
 
     if code == 200:
-        ksef_nr = status_payload.get("ksefNumber")
+        ksef_nr = extract_ksef_number_from_status(status_payload)
         lines = [
             "Faktura została przyjęta i przetworzona przez KSeF.",
             f"Numer referencyjny dokumentu: {ref or '—'}",
@@ -91,14 +91,27 @@ def send_invoice_to_ksef(invoice_id: int) -> KsefSubmitResult:
         if ksef_nr:
             lines.append(f"Numer KSeF: {ksef_nr}")
         msg = "\n".join(lines)
-        if ref:
+        if ksef_nr:
             try:
-                record_ksef_submission(invoice_id, str(ref))
+                # FA(2) NrKSeFFaKorygowanej wymaga TNumerKSeF — nie zapisujemy referenceNumber sesji (…-EE-…).
+                num_to_save = str(ksef_nr).strip()
+                if num_to_save and is_valid_ksef_number_format(num_to_save):
+                    record_ksef_submission(invoice_id, num_to_save)
+                else:
+                    msg += (
+                        "\n\nUwaga: pole ksefNumber z API nie pasuje do oczekiwanego formatu numeru KSeF — "
+                        "nie zapisano go w bazie (uniknięcie błędnego NrKSeFFaKorygowanej przy korekcie)."
+                    )
             except Exception as db_exc:
                 msg += (
                     "\n\nUwaga: nie udało się zapisać numeru w bazie lokalnej:\n"
                     f"{db_exc}"
                 )
+        else:
+            msg += (
+                "\n\nUwaga: brak pola ksefNumber w odpowiedzi statusu — numer KSeF nie został zapisany w bazie. "
+                "Sprawdź w KSeF numer dokumentu i ewentualnie dopisz go ręcznie przy korekcie."
+            )
         ksef_debug(f"send_invoice_to_ksef: SUKCES (200), numer KSeF={ksef_nr!r}")
         return KsefSubmitResult(
             ok=True,

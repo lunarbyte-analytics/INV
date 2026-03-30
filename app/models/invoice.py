@@ -58,22 +58,51 @@ def get_services():
         return cur.fetchall()
 
 # --- Invoice header ---
-def create_invoice(*, company_id: int, customer_id: int, payment_method_id: int,
-                   status_id: int, type_id: int, is_additional_address: int,
-                   name: Optional[str], create_date: Optional[str] = None,
-                   sales_date: Optional[str] = None, payment_date: Optional[str] = None) -> int:
+def create_invoice(
+    *,
+    company_id: int,
+    customer_id: int,
+    payment_method_id: int,
+    status_id: int,
+    type_id: int,
+    is_additional_address: int,
+    name: Optional[str],
+    create_date: Optional[str] = None,
+    sales_date: Optional[str] = None,
+    payment_date: Optional[str] = None,
+    corrected_invoice_id: Optional[int] = None,
+    correction_reason: Optional[str] = None,
+) -> int:
     now = _now_iso()
     cd = create_date or _date_str()
     sd = sales_date or cd
     pd = payment_date or cd
     with tx() as conn:
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO Invoice (CompanyId, CustomerId, PaymentMethodId, StatusId, TypeId, IsAdditionalAddress,
-                                 Name, CreateDate, SalesDate, PaymentDate, Created, Updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-        """, (company_id, customer_id, payment_method_id, status_id, type_id, int(is_additional_address),
-              name, cd, sd, pd, now, now))
+                                 Name, CreateDate, SalesDate, PaymentDate, Created, Updated,
+                                 CorrectedInvoiceId, CorrectionReason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                company_id,
+                customer_id,
+                payment_method_id,
+                status_id,
+                type_id,
+                int(is_additional_address),
+                name,
+                cd,
+                sd,
+                pd,
+                now,
+                now,
+                corrected_invoice_id,
+                (correction_reason or "").strip() or None,
+            ),
+        )
         return cur.lastrowid
 
 def update_invoice(invoice_id: int, **fields) -> bool:
@@ -88,6 +117,42 @@ def update_invoice(invoice_id: int, **fields) -> bool:
         cur = conn.cursor()
         cur.execute(f"UPDATE Invoice SET {', '.join(sets)} WHERE InvoiceId = ?;", params)
         return cur.rowcount > 0
+
+def get_invoice_company_customer(invoice_id: int) -> Optional[tuple[int, int]]:
+    """Zwraca (CompanyId, CustomerId) lub None."""
+    with tx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT CompanyId, CustomerId FROM Invoice WHERE InvoiceId = ?;",
+            (int(invoice_id),),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return int(row["CompanyId"]), int(row["CustomerId"])
+
+
+def validate_correction_link(
+    *,
+    company_id: int,
+    customer_id: int,
+    corrected_invoice_id: int,
+    current_invoice_id: Optional[int] = None,
+) -> None:
+    """Sprawdza powiązanie korekty z fakturą pierwotną (ci sami kontrahenci)."""
+    if corrected_invoice_id <= 0:
+        raise ValueError("Podaj poprawne ID faktury korygowanej (liczba > 0).")
+    if current_invoice_id is not None and corrected_invoice_id == current_invoice_id:
+        raise ValueError("Faktura nie może korygować samej siebie.")
+    pair = get_invoice_company_customer(corrected_invoice_id)
+    if pair is None:
+        raise ValueError(f"Nie znaleziono faktury o ID={corrected_invoice_id}.")
+    oc, ou = pair
+    if oc != company_id or ou != customer_id:
+        raise ValueError(
+            "Faktura korygowana musi mieć tych samych sprzedawcę i nabywcę co bieżąca faktura (korekta)."
+        )
+
 
 def find_invoice_by_party_and_name(company_id: int, customer_id: int, name: str) -> Optional[int]:
     """Unikalność wg sprzedawca + nabywca + numer faktury (pole Name)."""
@@ -280,7 +345,17 @@ def get_invoice_full(invoice_id: int):
                    cu_addr.ZipCode      AS CuZip,
                    cu_addr.City         AS CuCity,
                    cu_addr.Country      AS CuCountry,
-                   cu.OrgNbr1           AS CuNIP
+                   cu.OrgNbr1           AS CuNIP,
+
+                   i_corr.Name AS CorrectedOriginalName,
+                   i_corr.CreateDate AS CorrectedOriginalCreateDate,
+                   (
+                       SELECT k.ReferenceNumber
+                       FROM InvoiceKsefSubmission k
+                       WHERE k.InvoiceId = i_corr.InvoiceId
+                       ORDER BY k.SentAt DESC, k.InvoiceKsefSubmissionId DESC
+                       LIMIT 1
+                   ) AS CorrectedOriginalKsefRef
 
             FROM Invoice i
             JOIN PaymentMethod pm ON pm.PaymentMethodId = i.PaymentMethodId
@@ -297,6 +372,8 @@ def get_invoice_full(invoice_id: int):
                              THEN cu.AdditionalAddressId
                         ELSE cu.AddressId
                    END
+
+            LEFT JOIN Invoice i_corr ON i_corr.InvoiceId = i.CorrectedInvoiceId
 
             WHERE i.InvoiceId = ?;
         """

@@ -17,6 +17,7 @@ from decimal import Decimal
 from typing import Any
 
 from .fa_xml import compute_fa2_lines
+from .online_send import is_valid_ksef_number_format
 
 # Limit rozmiaru faktury bez załączników (KSeF — dokumentacja integracyjna).
 MAX_INVOICE_BYTES = 1_000_000
@@ -73,10 +74,29 @@ def validate_invoice_for_ksef(
     errors: list[str] = []
 
     type_name = (header.get("TypeName") or "").lower()
-    if "korekt" in type_name:
-        errors.append(
-            "Typ „faktura korygująca” nie jest obsługiwany przez ten eksport (wymagany pełny XML KOR)."
-        )
+    is_kor = "korekt" in type_name
+
+    if is_kor:
+        try:
+            cidi = int(header.get("CorrectedInvoiceId") or 0)
+        except (TypeError, ValueError):
+            cidi = 0
+        if cidi <= 0:
+            errors.append(
+                "Faktura korygująca: ustaw „ID faktury korygowanej” (faktura pierwotna w bazie)."
+            )
+        elif not (str(header.get("CorrectedOriginalName") or "")).strip():
+            errors.append(
+                "Faktura korygująca: nie znaleziono nagłówka faktury pierwotnej — sprawdź ID i zapisz."
+            )
+        else:
+            kref = (str(header.get("CorrectedOriginalKsefRef") or "")).strip()
+            if kref and not is_valid_ksef_number_format(kref):
+                errors.append(
+                    "Faktura korygująca: zapisany „numer KSeF” faktury pierwotnej nie jest prawidłowym TNumerKSeF "
+                    "(często w bazie trafił numer referencyjny sesji z …-EE-… zamiast numeru KSeF). "
+                    "Wyślij ponownie fakturę pierwotną do KSeF albo popraw wpis w bazie."
+                )
 
     if not details:
         errors.append("Faktura musi mieć co najmniej jedną pozycję.")
@@ -152,14 +172,18 @@ def validate_invoice_for_ksef(
         except Exception:
             errors.append(f"Pozycja {i}: niepoprawna ilość (Quantity).")
             continue
-        if q <= 0:
-            errors.append(f"Pozycja {i}: ilość musi być większa od zera (FA: P_8B).")
+        if not is_kor:
+            if q <= 0:
+                errors.append(f"Pozycja {i}: ilość musi być większa od zera (FA: P_8B).")
+        else:
+            if q == 0:
+                errors.append(f"Pozycja {i}: dla korekty ilość (różnica) nie może być zerowa.")
         try:
             p = Decimal(str(row.get("UnitPrice")))
         except Exception:
             errors.append(f"Pozycja {i}: niepoprawna cena jednostkowa (UnitPrice).")
             continue
-        if p < 0:
+        if not is_kor and p < 0:
             errors.append(f"Pozycja {i}: cena jednostkowa nie może być ujemna.")
         svc = (str(row.get("ServiceName") or "")).strip()
         if not svc:
