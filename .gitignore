@@ -9,6 +9,8 @@ __pycache__/
 .env
 .env.*
 !.env.example
+# Tokeny KSeF / CEIDG i NIP zapisane z menu Ustawienia integracji — tylko lokalnie
+inv_app_settings.json
 .vscode
 .githooks
 

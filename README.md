@@ -50,7 +50,7 @@ Baza (`sqllite3_inv.db`) i PDF (`reports/`) tworzą się **w tym samym folderze*
 | **Widok** | Nowa faktura, Kalendarz (dni wolne / święta) |
 | **KSeF** | Test połączenia, faktury zakupowe (zapytanie do API) |
 
-Ustawienia integracji można też trzymać w pliku JSON (np. `inv_app_settings.json`) — szczegóły w kodzie `app/app_env.py` (priorytet pól w pliku vs zmiennych środowiskowych).
+Ustawienia integracji: lokalny plik `inv_app_settings.json` (tworzony z UI) — **nie commituj go** (jest w `.gitignore`); szablon bez sekretów: `inv_app_settings.example.json`. Szczegóły: `app/app_env.py` (priorytet pliku vs zmiennych środowiskowych).
 
 ### Główne funkcje
 
@@ -66,6 +66,7 @@ Ustawienia integracji można też trzymać w pliku JSON (np. `inv_app_settings.j
 | `main.py` | Uruchomienie: `from app.main import main` |
 | `UruchomINV.bat` | Start na Windows bez ręcznego `pip` / `python` |
 | `requirements.txt` | Zależności Python |
+| `inv_app_settings.example.json` | Szablon ustawień integracji (bez tokenów) |
 | `app/main.py` | Inicjalizacja bazy, DPI na Windows, start `MainApp` |
 | `app/db.py` | SQLite, `tx()`, ścieżka bazy |
 | `app/models/` | Logika SQL: faktury, organizacje, encje, KSeF |
@@ -86,6 +87,12 @@ Ustawienia integracji można też trzymać w pliku JSON (np. `inv_app_settings.j
 
 - **`DEBUG_SQL`** — w `app/db.py` logowanie SQL do konsoli; wyłączenie: np. `DEBUG_SQL=0` (zgodnie z logiką w kodzie).
 - KSeF (token, NIP, URL) — opis w **Plik → Ustawienia integracji…** i w `app/app_env.py`.
+
+### Bezpieczeństwo
+
+- **Tokeny KSeF i CEIDG** oraz NIP kontekstu trafiają do `inv_app_settings.json` — plik **wyłączony z Gita** (`.gitignore`). Bazy `*.db` też nie powinny trafiać do repozytorium.
+- Alternatywa: zmienne **`KSEF_TOKEN`**, **`KSEF_NIP`**, **`CEIDG_HD_API_TOKEN`** (patrz `app/app_env.py`).
+- Jeśli kiedykolwiek **wypchnąłeś** `inv_app_settings.json` z prawdziwymi tokenami do zdalnego repozytorium: **unieważnij tokeny w KSeF / CEIDG** i wygeneruj nowe (sekrety mogą zostać w historii commitów).
 
 ### Uwagi techniczne
 
@@ -148,7 +155,7 @@ The database (`sqllite3_inv.db`) and PDFs (`reports/`) are created **in the same
 | **Widok** | New invoice, Calendar (public holidays / custom days off) |
 | **KSeF** | Connection test, purchase invoices (API query) |
 
-Integration settings can also be stored in a JSON file (e.g. `inv_app_settings.json`) — see `app/app_env.py` (priority of file fields vs environment variables).
+Integration settings: local file `inv_app_settings.json` (created from the UI) — **do not commit** (listed in `.gitignore`); template without secrets: `inv_app_settings.example.json`. See `app/app_env.py` (priority of file vs environment variables).
 
 ### Main features
 
@@ -164,6 +171,7 @@ Integration settings can also be stored in a JSON file (e.g. `inv_app_settings.j
 | `main.py` | Entry: `from app.main import main` |
 | `UruchomINV.bat` | Windows launcher without manual `pip` / `python` |
 | `requirements.txt` | Python dependencies |
+| `inv_app_settings.example.json` | Integration settings template (no secrets) |
 | `app/main.py` | DB init, Windows DPI, `MainApp` |
 | `app/db.py` | SQLite, `tx()`, DB path |
 | `app/models/` | SQL logic: invoices, organizations, entities, KSeF |
@@ -184,6 +192,12 @@ Integration settings can also be stored in a JSON file (e.g. `inv_app_settings.j
 
 - **`DEBUG_SQL`** — in `app/db.py`, logs SQL to the console; disable e.g. with `DEBUG_SQL=0` (see code).
 - KSeF (token, NIP, URL) — see **Plik → Ustawienia integracji…** and `app/app_env.py`.
+
+### Security
+
+- **KSeF and CEIDG tokens** and context NIP are stored in `inv_app_settings.json` — this file is **gitignored**. Database files `*.db` should not be committed either.
+- Alternative: environment variables **`KSEF_TOKEN`**, **`KSEF_NIP`**, **`CEIDG_HD_API_TOKEN`** (see `app/app_env.py`).
+- If you ever **pushed** `inv_app_settings.json` with real secrets to a remote: **revoke/regenerate tokens** in KSeF / CEIDG (secrets may remain in Git history).
 
 ### Technical notes
 

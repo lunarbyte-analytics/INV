@@ -1,0 +1,24 @@
+{
+  "environment": "production",
+  "context_organization_id": null,
+  "integration": {
+    "production": {
+      "ksef_token": "",
+      "ksef_nip": "",
+      "ksef_test_base_url": "",
+      "ksef_debug": false,
+      "ceidg_hd_api_token": "",
+      "ceidg_hd_api_base": "https://dane.biznes.gov.pl/api/ceidg/v3",
+      "ceidg_debug": false
+    },
+    "test": {
+      "ksef_token": "",
+      "ksef_nip": "",
+      "ksef_test_base_url": "",
+      "ksef_debug": false,
+      "ceidg_hd_api_token": "",
+      "ceidg_hd_api_base": "https://dane.biznes.gov.pl/api/ceidg/v3",
+      "ceidg_debug": false
+    }
+  }
+}
