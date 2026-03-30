@@ -248,6 +248,15 @@ def invoice_flow_role(company_id: int, customer_id: int, context_org_id: Optiona
     return "Poza kontekstem"
 
 
+def _flow_role_list_display(base_role: str, type_name: str | None) -> str:
+    """Etykieta w liście faktur: dopisek „korekta” dla typu dokumentu Korekta."""
+    if "korekt" not in (type_name or "").lower():
+        return base_role
+    if base_role == "—":
+        return "Korekta"
+    return f"{base_role} korekta"
+
+
 def get_invoice_list(
     *,
     context_org_id: Optional[int] = None,
@@ -278,6 +287,7 @@ def get_invoice_list(
                 i.Name,
                 i.CreateDate,
                 s.Name AS StatusName,
+                it.Name AS TypeName,
                 c.OrganizationId  AS CustomerId,
                 co.OrganizationId AS CompanyId,
                 COALESCE(NULLIF(TRIM(c.Name), ''),  'Org ' || c.OrganizationId)  AS CustomerName,
@@ -298,6 +308,7 @@ def get_invoice_list(
                 ) AS KsefSentAt
             FROM Invoice i
             LEFT JOIN Status s        ON s.StatusId        = i.StatusId
+            LEFT JOIN InvoiceType it  ON it.TypeId         = i.TypeId
             LEFT JOIN Organization c  ON c.OrganizationId  = i.CustomerId
             LEFT JOIN Organization co ON co.OrganizationId = i.CompanyId
             WHERE 1=1
@@ -310,9 +321,10 @@ def get_invoice_list(
     out: list[Dict[str, Any]] = []
     for r in rows:
         d = dict(r)
-        d["FlowRole"] = invoice_flow_role(
+        base = invoice_flow_role(
             int(d["CompanyId"]), int(d["CustomerId"]), context_org_id
         )
+        d["FlowRole"] = _flow_role_list_display(base, d.get("TypeName"))
         out.append(d)
     return out
 

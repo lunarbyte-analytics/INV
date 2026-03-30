@@ -31,11 +31,18 @@ from .settings_window import IntegrationSettingsWindow
 class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        title = "Aplikacja – Słowniki i Faktury"
+        title = "Aplikacja – Encje i Faktury"
         if is_test_environment():
             title += " [TEST]"
         self.title(title)
         self.geometry("1200x640")
+        try:
+            self.state("zoomed")
+        except tk.TclError:
+            try:
+                self.attributes("-zoomed", True)
+            except tk.TclError:
+                pass
         self._build_env_banner()
         self._build_menu()
         self._invoice_meta: dict[int, tuple[int, int]] = {}
@@ -65,15 +72,6 @@ class MainApp(tk.Tk):
     def _build_menu(self):
         menubar = tk.Menu(self)
 
-        m_dict = tk.Menu(menubar, tearoff=0)
-        m_dict.add_command(label="Faktury",   command=self.open_invoice_window)
-        m_dict.add_command(label="Podatek",   command=self.open_tax_window)
-        m_dict.add_command(label="Jednostki", command=self.open_unit_window)
-        m_dict.add_command(label="Usługi",    command=self.open_service_window)
-        m_dict.add_command(label="Adresy",    command=self.open_address_window)
-        m_dict.add_command(label="Organizacje", command=self.open_org_window)
-        menubar.add_cascade(label="Słowniki", menu=m_dict)
-
         m_file = tk.Menu(menubar, tearoff=0)
         m_env = tk.Menu(m_file, tearoff=0)
         self._var_env = tk.StringVar(value=get_environment().value)
@@ -96,7 +94,16 @@ class MainApp(tk.Tk):
         m_file.add_command(label="Zakończ", command=self.quit)
         menubar.add_cascade(label="Plik", menu=m_file)
 
+        m_entities = tk.Menu(menubar, tearoff=0)
+        m_entities.add_command(label="Podatek", command=self.open_tax_window)
+        m_entities.add_command(label="Jednostki", command=self.open_unit_window)
+        m_entities.add_command(label="Usługi", command=self.open_service_window)
+        m_entities.add_command(label="Adresy", command=self.open_address_window)
+        m_entities.add_command(label="Organizacje", command=self.open_org_window)
+        menubar.add_cascade(label="Encje", menu=m_entities)
+
         m_view = tk.Menu(menubar, tearoff=0)
+        m_view.add_command(label="Nowa faktura", command=self.open_invoice_window)
         m_view.add_command(label="Kalendarz", command=self.open_calendar_window)
         menubar.add_cascade(label="Widok", menu=m_view)
 
@@ -173,19 +180,51 @@ class MainApp(tk.Tk):
             self._var_flow.set(self._flow_labels[0])
         self.refresh_invoice_list()
 
+    def _show_invoice_list_help(self):
+        win = tk.Toplevel(self)
+        win.title("Pomoc — lista faktur")
+        win.transient(self)
+        win.resizable(False, False)
+        frm = ttk.Frame(win, padding=14)
+        frm.pack(fill=tk.BOTH, expand=True)
+        msg = (
+            "Kolumna „Typ”: względem „Mojej firmy” — Sprzedaż = wystawiasz fakturę, "
+            "Zakup = otrzymujesz. Dla faktury korygującej dopisywane jest „korekta” (np. „Sprzedaż korekta”).\n\n"
+            "Dwuklik lub Enter — edycja faktury. Druk i zmiana statusu — przyciski pod listą."
+        )
+        ttk.Label(frm, text=msg, wraplength=440, justify=tk.LEFT).pack(anchor=tk.W)
+        ttk.Button(frm, text="Zamknij", command=win.destroy).pack(pady=(14, 0))
+        win.bind("<Escape>", lambda e: win.destroy())
+        win.grab_set()
+        win.focus_set()
+
     def _build_home(self):
         root = ttk.Frame(self)
         root.pack(expand=True, fill=tk.BOTH)
 
-        ttk.Label(
-            root,
-            text=(
-                "Kolumna „Typ”: względem „Mojej firmy” — Sprzedaż = wystawiasz fakturę, Zakup = otrzymujesz. "
-                "Dwuklik lub Enter — edycja faktury. Druk i zmiana statusu — przyciski pod listą."
-            ),
-            font=("Segoe UI", 10),
-            wraplength=1100,
-        ).pack(pady=(8, 4))
+        help_row = ttk.Frame(root)
+        help_row.pack(fill=tk.X, pady=(8, 4), padx=10)
+        btn_new_invoice = ttk.Button(
+            help_row,
+            text="Nowa faktura",
+            command=self.open_invoice_window,
+        )
+        btn_new_invoice.pack(side=tk.LEFT)
+        try:
+            btn_new_invoice.configure(cursor="hand2")
+        except tk.TclError:
+            pass
+        btn_help = ttk.Button(
+            help_row,
+            text="?",
+            width=3,
+            command=self._show_invoice_list_help,
+        )
+        btn_help.pack(side=tk.LEFT, padx=(8, 0))
+        try:
+            btn_help.configure(cursor="hand2")
+        except tk.TclError:
+            pass
 
         filter_bar = ttk.Frame(root)
         filter_bar.pack(fill=tk.X, padx=10, pady=(0, 6))
@@ -242,7 +281,7 @@ class MainApp(tk.Tk):
         self.tree_invoices.heading("KsefSentAt", text="KSeF — wysłano")
 
         self.tree_invoices.column("InvoiceId", width=60, anchor="e")
-        self.tree_invoices.column("FlowRole", width=130, anchor="w")
+        self.tree_invoices.column("FlowRole", width=170, anchor="w")
         self.tree_invoices.column("Name", width=130, anchor="w")
         self.tree_invoices.column("CreateDate", width=100, anchor="center")
         self.tree_invoices.column("StatusName", width=120, anchor="w")
@@ -373,7 +412,7 @@ class MainApp(tk.Tk):
                     pass
         return False
 
-    # ---------------------- Otwieranie okien słowników ----------------------
+    # ---------------------- Otwieranie okien encji / faktury ----------------------
     def open_invoice_window(self):
         if getattr(self, "_invoice_win", None) is not None and self._invoice_win.winfo_exists():
             self._invoice_win.deiconify()
