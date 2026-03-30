@@ -3,6 +3,8 @@ from tkinter import ttk, messagebox
 from datetime import date
 from typing import Optional
 
+from tkcalendar import DateEntry
+
 # --- MODELE / API ---
 from ..models.invoice import (
     get_payment_methods, get_statuses, get_invoice_types,
@@ -67,9 +69,6 @@ class InvoiceCrud(tk.Toplevel):
         self.var_status = tk.StringVar()
         self.var_type = tk.StringVar()
         self.var_is_add_addr = tk.IntVar(value=0)
-        self.var_create_date = tk.StringVar()
-        self.var_sales_date = tk.StringVar()
-        self.var_payment_date = tk.StringVar()
         self.var_corrected_id = tk.StringVar()
         self.var_correction_reason = tk.StringVar()
 
@@ -129,18 +128,34 @@ class InvoiceCrud(tk.Toplevel):
         ttk.Checkbutton(frm, text="Użyć adresu dodatkowego nabywcy", variable=self.var_is_add_addr)\
             .grid(row=2, column=2, columnspan=2, sticky="w", padx=PADX, pady=PADY)
 
-        # Daty
+        # Daty (DateEntry — wybór z kalendarza)
+        _cal_kw = {"firstweekday": "monday"}
         ttk.Label(frm, text="Data wyst.:").grid(row=3, column=0, sticky=tk.E, padx=PADX, pady=PADY)
-        ttk.Entry(frm, textvariable=self.var_create_date, width=12)\
-            .grid(row=3, column=1, sticky="w", padx=PADX, pady=PADY)
+        self._de_create_date = DateEntry(
+            frm,
+            width=12,
+            date_pattern="yyyy-mm-dd",
+            calendar_kw=_cal_kw,
+        )
+        self._de_create_date.grid(row=3, column=1, sticky="w", padx=PADX, pady=PADY)
 
         ttk.Label(frm, text="Data sprzedaży:").grid(row=3, column=2, sticky=tk.E, padx=PADX, pady=PADY)
-        ttk.Entry(frm, textvariable=self.var_sales_date, width=12)\
-            .grid(row=3, column=3, sticky="w", padx=PADX, pady=PADY)
+        self._de_sales_date = DateEntry(
+            frm,
+            width=12,
+            date_pattern="yyyy-mm-dd",
+            calendar_kw=_cal_kw,
+        )
+        self._de_sales_date.grid(row=3, column=3, sticky="w", padx=PADX, pady=PADY)
 
         ttk.Label(frm, text="Termin płat.:").grid(row=3, column=4, sticky=tk.E, padx=PADX, pady=PADY)
-        ttk.Entry(frm, textvariable=self.var_payment_date, width=12)\
-            .grid(row=3, column=5, sticky="w", padx=PADX, pady=PADY)
+        self._de_payment_date = DateEntry(
+            frm,
+            width=12,
+            date_pattern="yyyy-mm-dd",
+            calendar_kw=_cal_kw,
+        )
+        self._de_payment_date.grid(row=3, column=5, sticky="w", padx=PADX, pady=PADY)
 
         ttk.Label(frm, text="Koryguje fakturę (ID):").grid(row=4, column=0, sticky=tk.E, padx=PADX, pady=PADY)
         ttk.Entry(frm, textvariable=self.var_corrected_id, width=12).grid(
@@ -279,6 +294,21 @@ class InvoiceCrud(tk.Toplevel):
     def _today(self) -> str:
         return date.today().strftime(ISO_FMT)
 
+    @staticmethod
+    def _coerce_iso_date(val) -> date:
+        if val is None:
+            return date.today()
+        t = str(val).strip()[:10]
+        if len(t) >= 10 and t[4] == "-" and t[7] == "-":
+            try:
+                return date.fromisoformat(t)
+            except ValueError:
+                pass
+        return date.today()
+
+    def _date_str_from_entry(self, de: DateEntry) -> str:
+        return de.get_date().strftime(ISO_FMT)
+
     def clear_form(self):
         # header
         self.var_invoice_id.set("")
@@ -287,10 +317,10 @@ class InvoiceCrud(tk.Toplevel):
         for v in (self.var_company, self.var_customer, self.var_payment, self.var_status, self.var_type):
             v.set("")
         # dates
-        today = self._today()
-        self.var_create_date.set(today)
-        self.var_sales_date.set(today)
-        self.var_payment_date.set(today)
+        td = date.today()
+        self._de_create_date.set_date(td)
+        self._de_sales_date.set_date(td)
+        self._de_payment_date.set_date(td)
         self.var_corrected_id.set("")
         self.var_correction_reason.set("")
         # details form
@@ -426,9 +456,9 @@ class InvoiceCrud(tk.Toplevel):
         # Nagłówek -> formularz
         self.var_invoice_id.set(header["InvoiceId"])
         self.var_name.set(header["Name"] or "")
-        self.var_create_date.set(header["CreateDate"] or "")
-        self.var_sales_date.set(header["SalesDate"] or "")
-        self.var_payment_date.set(header["PaymentDate"] or "")
+        self._de_create_date.set_date(self._coerce_iso_date(header.get("CreateDate")))
+        self._de_sales_date.set_date(self._coerce_iso_date(header.get("SalesDate")))
+        self._de_payment_date.set_date(self._coerce_iso_date(header.get("PaymentDate")))
 
         # Comboboxy po ID (reverse mapy z _load_lookups)
         self.var_company.set(self._org_rev.get(header["CompanyId"], ""))
@@ -470,9 +500,10 @@ class InvoiceCrud(tk.Toplevel):
         self.var_customer.set(self._org_rev.get(h["CustomerId"], ""))
         self.var_name.set("")
         self.var_invoice_id.set("")
-        self.var_create_date.set(self._today())
-        self.var_sales_date.set(self._today())
-        self.var_payment_date.set(self._today())
+        td = date.today()
+        self._de_create_date.set_date(td)
+        self._de_sales_date.set_date(td)
+        self._de_payment_date.set_date(td)
         self._clear_details_table()
         self._refresh_ksef_panel(None)
 
@@ -522,9 +553,9 @@ class InvoiceCrud(tk.Toplevel):
                     type_id=ids["TypeId"],
                     is_additional_address=int(self.var_is_add_addr.get() or 0),
                     name=name,
-                    create_date=self.var_create_date.get().strip() or None,
-                    sales_date=self.var_sales_date.get().strip() or None,
-                    payment_date=self.var_payment_date.get().strip() or None,
+                    create_date=self._date_str_from_entry(self._de_create_date) or None,
+                    sales_date=self._date_str_from_entry(self._de_sales_date) or None,
+                    payment_date=self._date_str_from_entry(self._de_payment_date) or None,
                     corrected_invoice_id=corr_id if is_kor else None,
                     correction_reason=reason if is_kor else None,
                 )
@@ -546,9 +577,9 @@ class InvoiceCrud(tk.Toplevel):
                     TypeId=ids["TypeId"],
                     IsAdditionalAddress=int(self.var_is_add_addr.get() or 0),
                     Name=name,
-                    CreateDate=self.var_create_date.get().strip(),
-                    SalesDate=self.var_sales_date.get().strip(),
-                    PaymentDate=self.var_payment_date.get().strip(),
+                    CreateDate=self._date_str_from_entry(self._de_create_date),
+                    SalesDate=self._date_str_from_entry(self._de_sales_date),
+                    PaymentDate=self._date_str_from_entry(self._de_payment_date),
                     CorrectedInvoiceId=corr_id if is_kor else None,
                     CorrectionReason=reason if is_kor else None,
                 )
