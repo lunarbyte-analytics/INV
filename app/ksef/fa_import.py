@@ -26,6 +26,9 @@ from ..models.service import create_service
 from ..models.tax import find_tax_id_by_value, get_or_create_tax_by_rate
 from ..models.unit import create_unit, find_unit_id_by_code
 
+# VAT — zwykła; ROZ — faktura rozliczeniowa (FA(2), m.in. Slim VAT 3) — ten sam model pozycji FaWiersz.
+_ALLOWED_RODZAJ_FAKTURY = frozenset({"VAT", "ROZ"})
+
 
 def _local(tag: str) -> str:
     if not tag:
@@ -278,9 +281,11 @@ def import_fa_purchase_xml_to_db(
     notes: list[str] = []
     data = parse_fa_xml(xml_bytes)
 
-    if (data.rodzaj or "").upper() not in ("VAT",):
+    r = (data.rodzaj or "").upper()
+    if r not in _ALLOWED_RODZAJ_FAKTURY:
         raise ValueError(
-            f"Obsługiwany jest tylko RodzajFaktury=VAT (tu: {data.rodzaj!r}). Korekty i inne typy — nie."
+            f"Obsługiwane RodzajFaktury: {', '.join(sorted(_ALLOWED_RODZAJ_FAKTURY))} "
+            f"(tu: {data.rodzaj!r}). Korekty (KOR itd.) — na razie nie."
         )
     if (data.currency or "PLN").upper() != "PLN":
         raise ValueError(f"Tylko waluta PLN (w pliku: {data.currency!r}).")

@@ -34,7 +34,8 @@ def send_invoice_to_ksef(invoice_id: int) -> KsefSubmitResult:
             "lub zmienne środowiskowe:\n"
             "  KSEF_TOKEN — token KSeF do uwierzytelnienia\n"
             "  KSEF_NIP — NIP kontekstu (podmiotu), zgodny z tokenem\n"
-            "Opcjonalnie: KSEF_TEST_BASE_URL — adres API (domyślnie środowisko testowe)."
+            "Opcjonalnie: pole URL w ustawieniach lub zmienne środowiskowe (gdy pole w pliku puste); "
+            "gdy wszędzie pusto: api-test / api.ksef wg Plik → Środowisko."
         )
 
     ensure_ksef_nip_matches_token(token, nip)

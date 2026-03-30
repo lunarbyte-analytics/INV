@@ -76,7 +76,7 @@ def poll_auth_until_ready(
             if code == 450:
                 msg += (
                     "\n\nWskazowki (450 – serwer nie akceptuje tokenu):\n"
-                    "- Token musi pochodzic z TEGO SAMEGO srodowiska co API (test: api-test.ksef.mf.gov.pl).\n"
+                    "- Token musi pochodzic z TEGO SAMEGO srodowiska co API (test: api-test…, prod: api.ksef…).\n"
                     "- W panelu KSeF token ma status Active (Pending = jeszcze nie do uzycia).\n"
                     "- KSEF_NIP = dokladnie 10 cyfr podmiotu powiazanego z tokenem.\n"
                     "- KSEF_TOKEN: pelny ciag (z |), bez cudzyslowow w zmiennej, bez enterow.\n"
