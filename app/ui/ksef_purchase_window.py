@@ -79,19 +79,14 @@ class KsefPurchaseWindow(tk.Toplevel):
         frm = ttk.Frame(self, padding=12)
         frm.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(
-            frm,
-            text=(
-                "Wyszukiwanie faktur, w których Twój NIP (KSEF_NIP) jest nabywcą (Subject2). "
-                "Wymagane uprawnienie InvoiceRead na tokenie oraz konfiguracja w Plik → Ustawienia integracji… "
-                "(lub KSEF_TOKEN i KSEF_NIP).\n"
-                "Import do bazy: na głównym oknie wybierz „Moja firma (kontekst)” — wtedy nabywca z XML "
-                "musi pasować do tej organizacji (NIP)."
-            ),
-            wraplength=960,
-            font=("Segoe UI", 9),
-            foreground="#333",
-        ).pack(anchor="w")
+        help_row = ttk.Frame(frm)
+        help_row.pack(fill=tk.X, anchor="w")
+        btn_help = ttk.Button(help_row, text="?", width=3, command=self._show_purchase_help)
+        btn_help.pack(side=tk.LEFT)
+        try:
+            btn_help.configure(cursor="hand2")
+        except tk.TclError:
+            pass
 
         row1 = ttk.Frame(frm)
         row1.pack(fill=tk.X, pady=(10, 4))
@@ -211,6 +206,26 @@ class KsefPurchaseWindow(tk.Toplevel):
         yscroll.pack(side=tk.RIGHT, fill=tk.Y)
 
         self._busy = False
+
+    def _show_purchase_help(self) -> None:
+        win = tk.Toplevel(self)
+        win.title("Pomoc — faktury zakupowe z KSeF")
+        win.transient(self)
+        win.resizable(False, False)
+        hf = ttk.Frame(win, padding=14)
+        hf.pack(fill=tk.BOTH, expand=True)
+        msg = (
+            "Wyszukiwanie faktur, w których Twój NIP (KSEF_NIP) jest nabywcą (Subject2). "
+            "Wymagane uprawnienie InvoiceRead na tokenie oraz konfiguracja w Plik → Ustawienia integracji… "
+            "(lub KSEF_TOKEN i KSEF_NIP).\n\n"
+            "Import do bazy: na głównym oknie wybierz „Moja firma (kontekst)” — wtedy nabywca z XML "
+            "musi pasować do tej organizacji (NIP)."
+        )
+        ttk.Label(hf, text=msg, wraplength=440, justify=tk.LEFT).pack(anchor=tk.W)
+        ttk.Button(hf, text="Zamknij", command=win.destroy).pack(pady=(14, 0))
+        win.bind("<Escape>", lambda e: win.destroy())
+        win.grab_set()
+        win.focus_set()
 
     def _get_token_nip(self) -> tuple[str, str]:
         tok = normalize_ksef_token(get_ksef_token())
