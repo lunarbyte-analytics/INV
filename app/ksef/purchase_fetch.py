@@ -12,14 +12,15 @@ def _metadata_url(
     base_url: str,
     *,
     sort_order: str,
-    page_offset: int,
+    page_index: int,
     page_size: int,
 ) -> str:
     base = base_url.rstrip("/")
     q = urlencode(
         {
             "sortOrder": sort_order,
-            "pageOffset": str(page_offset),
+            # pageOffset w API KSeF 2.0 = indeks strony (0, 1, 2…), NIE przesunięcie w rekordach.
+            "pageOffset": str(page_index),
             "pageSize": str(page_size),
         }
     )
@@ -34,12 +35,15 @@ def query_purchase_invoices_metadata(
     date_to_iso: str | None,
     date_type: str = "PermanentStorage",
     sort_order: str = "Desc",
-    page_offset: int = 0,
+    page_index: int = 0,
     page_size: int = 50,
 ) -> dict[str, Any]:
     """
     Faktury, w których zalogowany podmiot (NIP z tokenu) występuje jako nabywca — Subject2.
     Wymaga uprawnienia InvoiceRead.
+
+    Stronicowanie: ``page_index`` to numer strony od 0 (pierwsza strona = 0, następna = 1, …),
+    zgodnie z parametrem query ``pageOffset`` w API — nie należy go zwiększać o ``pageSize``.
     """
     if page_size < 10 or page_size > 250:
         raise ValueError("pageSize musi być w zakresie 10–250.")
@@ -56,7 +60,7 @@ def query_purchase_invoices_metadata(
     url = _metadata_url(
         base_url,
         sort_order=sort_order,
-        page_offset=page_offset,
+        page_index=page_index,
         page_size=page_size,
     )
     status, data = request_json("POST", url, json_body=body, bearer_token=access_token)

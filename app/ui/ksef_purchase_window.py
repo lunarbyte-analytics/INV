@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 import tkinter as tk
+from tkcalendar import DateEntry
 
 from ..app_env import get_context_organization_id, get_ksef_nip, get_ksef_token
 from ..ksef.env_normalize import normalize_ksef_nip, normalize_ksef_token
@@ -38,21 +39,17 @@ def _waw_tz():
     return _waw_cache
 
 
-def _default_dates() -> tuple[str, str]:
+def _default_dates() -> tuple[date, date]:
     now = datetime.now(_waw_tz())
     start = (now - timedelta(days=30)).replace(hour=0, minute=0, second=0, microsecond=0)
-    return start.strftime("%Y-%m-%d"), now.strftime("%Y-%m-%d")
+    return start.date(), now.date()
 
 
-def _parse_day(s: str, *, end_of_day: bool) -> datetime:
-    s = (s or "").strip()
-    if not s:
-        return datetime.now(_waw_tz())
-    d = datetime.strptime(s[:10], "%Y-%m-%d")
-    d = d.replace(tzinfo=_waw_tz())
+def _waw_datetime_from_date(d: date, *, end_of_day: bool) -> datetime:
+    """Początek / koniec dnia w strefie Europe/Warsaw (jak wcześniej _parse_day dla YYYY-MM-DD)."""
     if end_of_day:
-        return d.replace(hour=23, minute=59, second=59, microsecond=0)
-    return d.replace(hour=0, minute=0, second=0, microsecond=0)
+        return datetime(d.year, d.month, d.day, 23, 59, 59, 0, tzinfo=_waw_tz())
+    return datetime(d.year, d.month, d.day, 0, 0, 0, 0, tzinfo=_waw_tz())
 
 
 def _to_ksef_iso(dt: datetime) -> str:
@@ -70,9 +67,10 @@ class KsefPurchaseWindow(tk.Toplevel):
         self.minsize(800, 420)
 
         self._base_url = _effective_base_url(None)
-        self._page_offset = 0
+        # pageOffset w API = indeks strony (0, 1, 2…). Bieżąca strona w tabeli (jedna strona na raz).
+        self._current_page = -1  # -1 = jeszcze nie pobrano listy
         self._page_size = 50
-        self._has_more = False
+        self._has_more = False  # z ostatniej odpowiedzi: czy jest kolejna strona w API
         self._date_type = tk.StringVar(value="PermanentStorage")
         self._sort_order = tk.StringVar(value="Desc")
 
@@ -91,12 +89,25 @@ class KsefPurchaseWindow(tk.Toplevel):
         row1 = ttk.Frame(frm)
         row1.pack(fill=tk.X, pady=(10, 4))
         df, dt = _default_dates()
-        ttk.Label(row1, text="Data od (YYYY-MM-DD):").pack(side=tk.LEFT)
-        self._var_from = tk.StringVar(value=df)
-        ttk.Entry(row1, textvariable=self._var_from, width=12).pack(side=tk.LEFT, padx=(6, 16))
+        _cal_kw = {"firstweekday": "monday"}
+        ttk.Label(row1, text="Data od:").pack(side=tk.LEFT)
+        self._de_from = DateEntry(
+            row1,
+            width=12,
+            date_pattern="yyyy-mm-dd",
+            calendar_kw=_cal_kw,
+        )
+        self._de_from.set_date(df)
+        self._de_from.pack(side=tk.LEFT, padx=(6, 16))
         ttk.Label(row1, text="Data do:").pack(side=tk.LEFT)
-        self._var_to = tk.StringVar(value=dt)
-        ttk.Entry(row1, textvariable=self._var_to, width=12).pack(side=tk.LEFT, padx=(6, 16))
+        self._de_to = DateEntry(
+            row1,
+            width=12,
+            date_pattern="yyyy-mm-dd",
+            calendar_kw=_cal_kw,
+        )
+        self._de_to.set_date(dt)
+        self._de_to.pack(side=tk.LEFT, padx=(6, 16))
 
         ttk.Label(row1, text="Typ daty:").pack(side=tk.LEFT)
         self._cb_date_type = ttk.Combobox(
@@ -133,13 +144,30 @@ class KsefPurchaseWindow(tk.Toplevel):
         ttk.Button(btn_row, text="Pobierz listę (od nowa)", command=self._on_fetch_first).pack(
             side=tk.LEFT
         )
-        self._btn_more = ttk.Button(
+        ttk.Label(btn_row, text="  Strony:").pack(side=tk.LEFT, padx=(12, 4))
+        self._btn_prev = ttk.Button(
             btn_row,
-            text="Załaduj kolejną stronę",
-            command=self._on_fetch_more,
+            text="<",
+            width=3,
+            command=self._on_page_prev,
             state=tk.DISABLED,
         )
-        self._btn_more.pack(side=tk.LEFT, padx=(8, 0))
+        self._btn_prev.pack(side=tk.LEFT)
+        self._lbl_page = ttk.Label(btn_row, text="—", width=12, anchor=tk.CENTER)
+        self._lbl_page.pack(side=tk.LEFT, padx=4)
+        self._btn_next = ttk.Button(
+            btn_row,
+            text=">",
+            width=3,
+            command=self._on_page_next,
+            state=tk.DISABLED,
+        )
+        self._btn_next.pack(side=tk.LEFT)
+        for _bn in (self._btn_prev, self._btn_next):
+            try:
+                _bn.configure(cursor="hand2")
+            except tk.TclError:
+                pass
         ttk.Button(
             btn_row,
             text="Pobierz XML zaznaczonych…",
@@ -242,17 +270,34 @@ class KsefPurchaseWindow(tk.Toplevel):
     def _on_fetch_first(self) -> None:
         if self._busy:
             return
-        self._page_offset = 0
-        for i in self._tree.get_children():
-            self._tree.delete(i)
-        self._fetch_page(reset=True)
+        self._fetch_page_at(0)
 
-    def _on_fetch_more(self) -> None:
+    def _on_page_prev(self) -> None:
+        if self._busy or self._current_page <= 0:
+            return
+        self._fetch_page_at(self._current_page - 1)
+
+    def _on_page_next(self) -> None:
         if self._busy or not self._has_more:
             return
-        self._fetch_page(reset=False)
+        self._fetch_page_at(self._current_page + 1)
 
-    def _fetch_page(self, *, reset: bool) -> None:
+    def _update_nav_state(self) -> None:
+        if self._busy:
+            self._btn_prev.configure(state=tk.DISABLED)
+            self._btn_next.configure(state=tk.DISABLED)
+            self._lbl_page.configure(text="…")
+            return
+        if self._current_page < 0:
+            self._btn_prev.configure(state=tk.DISABLED)
+            self._btn_next.configure(state=tk.DISABLED)
+            self._lbl_page.configure(text="—")
+            return
+        self._btn_prev.configure(state=tk.NORMAL if self._current_page > 0 else tk.DISABLED)
+        self._btn_next.configure(state=tk.NORMAL if self._has_more else tk.DISABLED)
+        self._lbl_page.configure(text=str(self._current_page + 1))
+
+    def _fetch_page_at(self, page_idx: int) -> None:
         tok, nip = self._get_token_nip()
         if not tok or not nip:
             messagebox.showwarning(
@@ -262,12 +307,8 @@ class KsefPurchaseWindow(tk.Toplevel):
             )
             return
 
-        try:
-            d_from = _parse_day(self._var_from.get(), end_of_day=False)
-            d_to = _parse_day(self._var_to.get(), end_of_day=True)
-        except ValueError:
-            messagebox.showerror("Data", "Niepoprawny format daty. Użyj YYYY-MM-DD.", parent=self)
-            return
+        d_from = _waw_datetime_from_date(self._de_from.get_date(), end_of_day=False)
+        d_to = _waw_datetime_from_date(self._de_to.get_date(), end_of_day=True)
 
         warn = max_range_days_warning(d_from, d_to)
         if warn and not messagebox.askyesno("Zakres dat", warn + "\n\nKontynuować?", parent=self):
@@ -276,13 +317,11 @@ class KsefPurchaseWindow(tk.Toplevel):
         from_iso = _to_ksef_iso(d_from)
         to_iso = _to_ksef_iso(d_to)
         self._page_size = self._parse_page_size()
-        if reset:
-            self._page_offset = 0
 
         self._busy = True
         self._status.set("Łączenie z KSeF…")
+        self._update_nav_state()
         base = self._base_url
-        offset = self._page_offset
         psize = self._page_size
         d_type = self._date_type.get()
         sort_o = self._sort_order.get()
@@ -297,16 +336,19 @@ class KsefPurchaseWindow(tk.Toplevel):
                     date_to_iso=to_iso,
                     date_type=d_type,
                     sort_order=sort_o,
-                    page_offset=offset,
+                    page_index=page_idx,
                     page_size=psize,
                 )
                 invoices: list[dict[str, Any]] = list(data.get("invoices") or [])
-                has_more = bool(data.get("hasMore"))
+                hm = data.get("hasMore")
+                if hm is None:
+                    hm = data.get("has_more")
+                has_more = bool(hm)
                 trunc = bool(data.get("isTruncated"))
                 hwm = data.get("permanentStorageHwmDate")
 
                 def done():
-                    self._apply_fetch_result(invoices, has_more, trunc, hwm, reset)
+                    self._apply_fetch_result(invoices, has_more, trunc, hwm, page_idx, psize)
 
                 self.after(0, done)
             except Exception as e:
@@ -315,6 +357,7 @@ class KsefPurchaseWindow(tk.Toplevel):
                 def fail():
                     self._busy = False
                     self._status.set("Błąd.")
+                    self._update_nav_state()
                     messagebox.showerror("KSeF", msg, parent=self)
 
                 self.after(0, fail)
@@ -327,12 +370,12 @@ class KsefPurchaseWindow(tk.Toplevel):
         has_more: bool,
         is_truncated: bool,
         hwm: Any,
-        reset: bool,
+        page_idx: int,
+        psize: int,
     ) -> None:
         self._busy = False
-        if reset:
-            for i in self._tree.get_children():
-                self._tree.delete(i)
+        for i in self._tree.get_children():
+            self._tree.delete(i)
         for inv in invoices:
             r = format_invoice_row(inv)
             gross = r["grossAmount"]
@@ -352,16 +395,17 @@ class KsefPurchaseWindow(tk.Toplevel):
             )
 
         self._has_more = has_more
-        self._btn_more.config(state=tk.NORMAL if has_more else tk.DISABLED)
-        if has_more:
-            self._page_offset += self._page_size
+        self._current_page = page_idx
+        self._update_nav_state()
         extra = []
         if is_truncated:
             extra.append("isTruncated=true — zawęż daty lub kontynuuj wg dokumentacji API.")
         if hwm:
             extra.append(f"HWM: {hwm}")
         self._status.set(
-            f"Pobrano {len(invoices)} pozycji. hasMore={has_more}. " + " ".join(extra)
+            f"Strona {page_idx + 1} (po {psize} na stronę): {len(invoices)} faktur w widoku. "
+            f"{'Dostępna następna strona (>)' if has_more else 'Ostatnia strona (hasMore=false).'}"
+            + (" " + " ".join(extra) if extra else "")
         )
 
     def _on_download_selected(self) -> None:
