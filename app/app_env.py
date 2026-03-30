@@ -9,8 +9,9 @@ from typing import Any
 
 SETTINGS_FILE = Path("inv_app_settings.json")
 
-# Domyślny adres API KSeF v2 (środowisko testowe) — jak w app/ksef/client.py
+# Domyślne adresy API KSeF v2 — gdy w ustawieniach i KSEF_TEST_BASE_URL jest pusto
 DEFAULT_KSEF_TEST_BASE_URL = "https://api-test.ksef.mf.gov.pl/v2"
+DEFAULT_KSEF_PRODUCTION_BASE_URL = "https://api.ksef.mf.gov.pl/v2"
 # Hurtownia danych CEIDG — OpenAPI „API HD v3” (servers.url w API HD v3.json)
 DEFAULT_CEIDG_HD_API_BASE = "https://dane.biznes.gov.pl/api/ceidg/v3"
 
@@ -108,16 +109,67 @@ def is_test_environment() -> bool:
 
 
 # --- Integracja KSeF / CEIDG (plik JSON + nadpisanie zmiennymi środowiskowymi) ---
+# Osobne zestawy dla production / test (klucze w integration.{production|test}).
+
+
+def _integration_env_key() -> str:
+    return "test" if get_environment() == AppEnvironment.TEST else "production"
+
+
+def _migrate_legacy_integration(data: dict[str, Any]) -> bool:
+    """
+    Stary format: integration: { ksef_token, ... }.
+    Nowy: integration: { production: {...}, test: {...} }.
+    Zwraca True, jeśli wykonano migrację i zapisano plik.
+    """
+    raw = data.get("integration")
+    if not isinstance(raw, dict):
+        return False
+    if "production" in raw or "test" in raw:
+        return False
+    if not any(
+        k in raw
+        for k in (
+            "ksef_token",
+            "ksef_nip",
+            "ksef_test_base_url",
+            "ksef_debug",
+            "ceidg_hd_api_token",
+            "ceidg_hd_api_base",
+            "ceidg_debug",
+        )
+    ):
+        return False
+    data["integration"] = {
+        "production": dict(raw),
+        "test": {},
+    }
+    if "environment" not in data:
+        data["environment"] = get_environment().value
+    _save_settings_file(data)
+    return True
+
+
+def _integration_block_for_key(data: dict[str, Any], key: str) -> dict[str, Any]:
+    raw = data.get("integration")
+    if not isinstance(raw, dict):
+        return {}
+    if "production" not in raw and "test" not in raw:
+        return {}
+    block = raw.get(key)
+    if not isinstance(block, dict):
+        return {}
+    return block
 
 
 def _integration_raw() -> dict[str, Any]:
-    data = _load_settings_file().get("integration")
-    return data if isinstance(data, dict) else {}
+    data = _load_settings_file()
+    if _migrate_legacy_integration(data):
+        data = _load_settings_file()
+    return _integration_block_for_key(data, _integration_env_key())
 
 
-def get_integration_dict() -> dict[str, Any]:
-    """Wartości z pliku ustawień (do edycji w oknie Ustawienia)."""
-    r = _integration_raw()
+def _normalize_integration_block(r: dict[str, Any]) -> dict[str, Any]:
     return {
         "ksef_token": str(r.get("ksef_token") or ""),
         "ksef_nip": str(r.get("ksef_nip") or ""),
@@ -129,10 +181,22 @@ def get_integration_dict() -> dict[str, Any]:
     }
 
 
-def save_integration_dict(integration: dict[str, Any], *, persist: bool = True) -> None:
-    """Zapisuje sekcję integration (pozostałe klucze pliku bez zmian)."""
+def get_integration_dict() -> dict[str, Any]:
+    """Wartości z pliku dla bieżącego środowiska (Plik → Środowisko)."""
+    return _normalize_integration_block(_integration_raw())
+
+
+def get_integration_dict_for_env(env: AppEnvironment) -> dict[str, Any]:
+    """Wartości z pliku dla wskazanego środowiska (bez wpływu Plik → Środowisko)."""
     data = _load_settings_file()
-    clean = {
+    if _migrate_legacy_integration(data):
+        data = _load_settings_file()
+    key = "test" if env == AppEnvironment.TEST else "production"
+    return _normalize_integration_block(_integration_block_for_key(data, key))
+
+
+def _clean_integration_dict(integration: dict[str, Any]) -> dict[str, Any]:
+    return {
         "ksef_token": str(integration.get("ksef_token") or ""),
         "ksef_nip": str(integration.get("ksef_nip") or ""),
         "ksef_test_base_url": str(integration.get("ksef_test_base_url") or ""),
@@ -141,7 +205,44 @@ def save_integration_dict(integration: dict[str, Any], *, persist: bool = True) 
         "ceidg_hd_api_base": str(integration.get("ceidg_hd_api_base") or ""),
         "ceidg_debug": bool(integration.get("ceidg_debug")),
     }
-    data["integration"] = clean
+
+
+def save_integration_dict(integration: dict[str, Any], *, persist: bool = True) -> None:
+    """Zapisuje zestaw integracji dla bieżącego środowiska (drugi zestaw pozostaje bez zmian)."""
+    data = _load_settings_file()
+    _migrate_legacy_integration(data)
+    data = _load_settings_file()
+    key = _integration_env_key()
+    clean = _clean_integration_dict(integration)
+    if not isinstance(data.get("integration"), dict):
+        data["integration"] = {}
+    integ = data["integration"]
+    if not isinstance(integ.get("production"), dict):
+        integ["production"] = {}
+    if not isinstance(integ.get("test"), dict):
+        integ["test"] = {}
+    integ[key] = clean
+    if "environment" not in data:
+        data["environment"] = get_environment().value
+    if persist:
+        _save_settings_file(data)
+
+
+def save_integration_both(
+    production: dict[str, Any],
+    test: dict[str, Any],
+    *,
+    persist: bool = True,
+) -> None:
+    """Zapisuje oba zestawy integracji (production i test) w jednym zapisie pliku."""
+    data = _load_settings_file()
+    _migrate_legacy_integration(data)
+    data = _load_settings_file()
+    if not isinstance(data.get("integration"), dict):
+        data["integration"] = {}
+    integ = data["integration"]
+    integ["production"] = _clean_integration_dict(production)
+    integ["test"] = _clean_integration_dict(test)
     if "environment" not in data:
         data["environment"] = get_environment().value
     if persist:
@@ -149,24 +250,47 @@ def save_integration_dict(integration: dict[str, Any], *, persist: bool = True) 
 
 
 def get_ksef_token() -> str:
-    v = (os.getenv("KSEF_TOKEN") or "").strip()
-    if v:
-        return v
-    return (get_integration_dict().get("ksef_token") or "").strip()
+    """Najpierw niepusty token z pliku (profil wg Plik → Środowisko), potem KSEF_TOKEN."""
+    f = (get_integration_dict().get("ksef_token") or "").strip()
+    if f:
+        return f
+    return (os.getenv("KSEF_TOKEN") or "").strip()
 
 
 def get_ksef_nip() -> str:
-    v = (os.getenv("KSEF_NIP") or "").strip()
-    if v:
-        return v
-    return (get_integration_dict().get("ksef_nip") or "").strip()
+    """Najpierw niepusty NIP z pliku, potem KSEF_NIP."""
+    f = (get_integration_dict().get("ksef_nip") or "").strip()
+    if f:
+        return f
+    return (os.getenv("KSEF_NIP") or "").strip()
 
 
 def get_ksef_test_base_url() -> str:
-    v = (os.getenv("KSEF_TEST_BASE_URL") or "").strip()
-    if v:
-        return v
-    return (get_integration_dict().get("ksef_test_base_url") or "").strip()
+    """
+    Adres API v2 (bez domyślnego hosta): najpierw niepusta wartość z pliku,
+    potem zmienne środowiskowe dopasowane do środowiska aplikacji.
+
+    Uwaga: globalna zmienna KSEF_TEST_BASE_URL nie jest używana w trybie produkcyjnym
+    aplikacji (żeby nie wymuszać api-test przy zapisanym api.ksef w pliku).
+    Gdy pole w pliku jest puste: w trybie testowym — KSEF_TEST_BASE_URL;
+    w trybie produkcyjnym — KSEF_BASE_URL lub KSEF_PRODUCTION_BASE_URL.
+    """
+    f = (get_integration_dict().get("ksef_test_base_url") or "").strip()
+    if f:
+        return f
+    if get_environment() == AppEnvironment.TEST:
+        return (os.getenv("KSEF_TEST_BASE_URL") or "").strip()
+    return (os.getenv("KSEF_BASE_URL") or os.getenv("KSEF_PRODUCTION_BASE_URL") or "").strip()
+
+
+def get_default_ksef_api_base_url() -> str:
+    """Host API v2 używany przy pustym polu URL: test → api-test, produkcja aplikacji → api.ksef."""
+    u = (
+        DEFAULT_KSEF_TEST_BASE_URL
+        if get_environment() == AppEnvironment.TEST
+        else DEFAULT_KSEF_PRODUCTION_BASE_URL
+    )
+    return u.rstrip("/")
 
 
 def get_ksef_debug() -> bool:

@@ -3,14 +3,21 @@ import threading
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 
-from ..app_env import get_ksef_nip, get_ksef_test_base_url, get_ksef_token
-from ..ksef.client import ENV_TEST, test_challenge_connection
+from ..app_env import (
+    AppEnvironment,
+    get_default_ksef_api_base_url,
+    get_environment,
+    get_ksef_nip,
+    get_ksef_test_base_url,
+    get_ksef_token,
+)
+from ..ksef.client import _effective_base_url, test_challenge_connection
 from ..ksef.http_json import KsefHttpError
 from ..ksef.token_status import fetch_token_status
 
 
 class KsefConnectionWindow(tk.Toplevel):
-    """Okno testu połączenia z API KSeF (środowisko testowe)."""
+    """Okno testu połączenia z API KSeF (host domyślny zależny od Plik → Środowisko)."""
 
     def __init__(self, master=None):
         super().__init__(master)
@@ -21,17 +28,24 @@ class KsefConnectionWindow(tk.Toplevel):
         frm = ttk.Frame(self, padding=12)
         frm.pack(fill=tk.BOTH, expand=True)
 
+        env = get_environment()
+        env_lbl = (
+            "Środowisko aplikacji: TESTOWE — domyślny host API: api-test.ksef.mf.gov.pl"
+            if env == AppEnvironment.TEST
+            else "Środowisko aplikacji: PRODUKCYJNE — domyślny host API: api.ksef.mf.gov.pl"
+        )
         ttk.Label(frm, text="Środowisko", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w")
-        ttk.Label(frm, text=ENV_TEST["label"]).grid(row=1, column=0, sticky="w")
+        ttk.Label(frm, text=env_lbl, wraplength=660, font=("Segoe UI", 9)).grid(row=1, column=0, sticky="w")
 
         ttk.Label(frm, text="Bazowy adres API (v2)", font=("Segoe UI", 10, "bold")).grid(row=2, column=0, sticky="nw", pady=(12, 0))
-        self._base_var = tk.StringVar(value=get_ksef_test_base_url() or ENV_TEST["base_url"])
+        self._base_var = tk.StringVar(value=get_ksef_test_base_url() or get_default_ksef_api_base_url())
         base_entry = ttk.Entry(frm, textvariable=self._base_var, width=72)
         base_entry.grid(row=3, column=0, sticky="ew")
 
         hint = (
-            "Adres z ustawień (Plik → Ustawienia integracji…) lub ze zmiennej KSEF_TEST_BASE_URL. "
-            "„Testuj połączenie” wywołuje POST …/auth/challenge."
+            "Adres: niepuste pole w Plik → Ustawienia integracji (bieżący profil), potem "
+            "KSEF_TEST_BASE_URL (tylko gdy aplikacja w trybie testowym) lub KSEF_BASE_URL (tryb produkcyjny), "
+            "na końcu domyślny host wg Plik → Środowisko. „Testuj połączenie” — POST …/auth/challenge."
         )
         ttk.Label(frm, text=hint, wraplength=660, font=("Segoe UI", 9), foreground="#444").grid(
             row=4, column=0, sticky="w", pady=(6, 8)
@@ -91,11 +105,12 @@ class KsefConnectionWindow(tk.Toplevel):
         self._log.see(tk.END)
 
     def _run_test(self) -> None:
-        base = self._base_var.get().strip()
+        raw = self._base_var.get().strip()
+        eff = _effective_base_url(raw if raw else None)
         self._append_log("\n---\n")
-        self._append_log(f"Żądanie: POST {base}/auth/challenge\n")
+        self._append_log(f"Żądanie: POST {eff}/auth/challenge\n")
         self.update_idletasks()
-        result = test_challenge_connection(base_url=base if base else None)
+        result = test_challenge_connection(base_url=raw if raw else None)
         self._append_log(result.message + "\n")
         if result.detail and isinstance(result.detail, dict):
             try:
@@ -104,9 +119,8 @@ class KsefConnectionWindow(tk.Toplevel):
                 self._append_log(str(result.detail) + "\n")
 
     def _run_token_status(self) -> None:
-        base = self._base_var.get().strip()
-        if not base:
-            base = ENV_TEST["base_url"]
+        raw = self._base_var.get().strip()
+        base = _effective_base_url(raw if raw else None)
 
         tok = self._token_var.get()
         nip = self._nip_var.get()
