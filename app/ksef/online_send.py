@@ -62,7 +62,7 @@ def _b64(data: bytes) -> str:
     return base64.b64encode(data).decode("ascii")
 
 
-def open_online_session_fa2(
+def open_online_session_fa3(
     base_url: str,
     access_token: str,
     symmetric_key_cert_der: bytes,
@@ -70,7 +70,8 @@ def open_online_session_fa2(
     aes_key, iv = new_aes_key_iv()
     enc_sym = encrypt_rsa_oaep_sha256_der(symmetric_key_cert_der, aes_key)
     body = {
-        "formCode": {"systemCode": "FA (2)", "schemaVersion": "1-0E", "value": "FA"},
+        # Od 2026-02-01 KSeF 2.0 w praktyce wymaga FA(3).
+        "formCode": {"systemCode": "FA (3)", "schemaVersion": "1-0E", "value": "FA"},
         "encryption": {
             "encryptedSymmetricKey": _b64(enc_sym),
             "initializationVector": _b64(iv),
@@ -87,7 +88,7 @@ def open_online_session_fa2(
     ref = data.get("referenceNumber")
     if not ref:
         raise KsefHttpError("Brak referenceNumber sesji", None)
-    ksef_debug(f"open_online_session_fa2: sesja={ref!r}, POST /sessions/online → {status}")
+    ksef_debug(f"open_online_session_fa3: sesja={ref!r}, POST /sessions/online → {status}")
     return str(ref), aes_key, iv
 
 
@@ -245,7 +246,7 @@ def send_invoice_xml(
         f"send_invoice_xml: start, XML bytes={len(invoice_xml_bytes)}, "
         f"base_url={base_url!r}"
     )
-    session_ref, aes_key, iv = open_online_session_fa2(base_url, access_token, sym_cert)
+    session_ref, aes_key, iv = open_online_session_fa3(base_url, access_token, sym_cert)
     try:
         send_resp = send_encrypted_invoice(
             base_url, access_token, session_ref, invoice_xml_bytes, aes_key, iv

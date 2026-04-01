@@ -1,4 +1,4 @@
-"""Wysyłka pojedynczej faktury z bazy do KSeF (FA(2), sesja interaktywna)."""
+"""Wysyłka pojedynczej faktury z bazy do KSeF (FA(3), sesja interaktywna)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,7 +11,7 @@ from .client import _effective_base_url
 from .env_normalize import ensure_ksef_nip_matches_token, normalize_ksef_nip, normalize_ksef_token
 from .debug_log import ksef_debug
 from .fa_validate import validate_invoice_for_ksef, validate_xml_size_fits_ksef
-from .fa_xml import build_fa2_invoice_xml
+from .fa_xml import build_fa3_invoice_xml
 from .http_json import KsefHttpError
 from .online_send import extract_ksef_number_from_status, is_valid_ksef_number_format, send_invoice_xml
 
@@ -47,7 +47,7 @@ def send_invoice_to_ksef(invoice_id: int) -> KsefSubmitResult:
         raise ValueError(f"Nie znaleziono faktury o ID={invoice_id}.")
 
     validate_invoice_for_ksef(header, details, env_nip=nip)
-    xml_str = build_fa2_invoice_xml(header, details)
+    xml_str = build_fa3_invoice_xml(header, details)
     xml_bytes = xml_str.encode("utf-8")
     validate_xml_size_fits_ksef(xml_bytes)
     ksef_debug(
@@ -93,7 +93,7 @@ def send_invoice_to_ksef(invoice_id: int) -> KsefSubmitResult:
         msg = "\n".join(lines)
         if ksef_nr:
             try:
-                # FA(2) NrKSeFFaKorygowanej wymaga TNumerKSeF — nie zapisujemy referenceNumber sesji (…-EE-…).
+                # NrKSeFFaKorygowanej wymaga TNumerKSeF — nie zapisujemy referenceNumber sesji (…-EE-…).
                 num_to_save = str(ksef_nr).strip()
                 if num_to_save and is_valid_ksef_number_format(num_to_save):
                     record_ksef_submission(invoice_id, num_to_save)
