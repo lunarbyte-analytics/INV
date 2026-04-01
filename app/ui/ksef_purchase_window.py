@@ -59,6 +59,64 @@ def _to_ksef_iso(dt: datetime) -> str:
     return u.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
 
+def _iter_ksef_date_chunks(
+    from_dt: datetime,
+    to_dt: datetime,
+    *,
+    max_months: int = 3,
+) -> list[tuple[datetime, datetime]]:
+    """
+    KSeF waliduje dateRange (metadata) do maks. 3 miesięcy.
+    Dzielimy na bezpieczne kawałki <= max_months miesięcy (kalendarzowo).
+    """
+    if from_dt.tzinfo is None:
+        from_dt = from_dt.replace(tzinfo=_waw_tz())
+    if to_dt.tzinfo is None:
+        to_dt = to_dt.replace(tzinfo=_waw_tz())
+    if to_dt < from_dt:
+        return []
+
+    def _days_in_month(y: int, m: int) -> int:
+        if m == 12:
+            nxt = date(y + 1, 1, 1)
+        else:
+            nxt = date(y, m + 1, 1)
+        cur = date(y, m, 1)
+        return (nxt - cur).days
+
+    def _add_months(dt: datetime, months: int) -> datetime:
+        y = dt.year
+        m = dt.month + months
+        y += (m - 1) // 12
+        m = ((m - 1) % 12) + 1
+        d = min(dt.day, _days_in_month(y, m))
+        return datetime(y, m, d, dt.hour, dt.minute, dt.second, dt.microsecond, tzinfo=dt.tzinfo)
+
+    chunks: list[tuple[datetime, datetime]] = []
+    cur = from_dt
+    while cur <= to_dt:
+        # Koniec kawałka: tuż przed chwilą "cur + max_months miesięcy"
+        next_cut = _add_months(cur, max_months)
+        end = min(to_dt, next_cut - timedelta(seconds=1))
+        chunks.append((cur, end))
+        cur = end + timedelta(seconds=1)
+    return chunks
+
+
+def _ksef_range_exceeds_months(from_dt: datetime, to_dt: datetime, *, max_months: int = 3) -> bool:
+    """True jeśli zakres przekracza max_months miesięcy (kalendarzowo)."""
+    if from_dt.tzinfo is None:
+        from_dt = from_dt.replace(tzinfo=_waw_tz())
+    if to_dt.tzinfo is None:
+        to_dt = to_dt.replace(tzinfo=_waw_tz())
+    if to_dt < from_dt:
+        return False
+    # Zakres jest OK jeśli to_dt <= (from_dt + max_months miesięcy - 1 sekunda).
+    next_cut = _iter_ksef_date_chunks(from_dt, to_dt, max_months=max_months)
+    # Jeżeli mamy więcej niż 1 kawałek, to znaczy że przekracza limit.
+    return len(next_cut) > 1
+
+
 class KsefPurchaseWindow(tk.Toplevel):
     def __init__(self, master=None):
         super().__init__(master)
@@ -177,6 +235,11 @@ class KsefPurchaseWindow(tk.Toplevel):
             btn_row,
             text="Importuj zaznaczone do bazy",
             command=self._on_import_selected_to_db,
+        ).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(
+            btn_row,
+            text="Importuj wszystkie dokumenty",
+            command=self._on_import_all_in_range,
         ).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(
             btn_row,
@@ -310,8 +373,14 @@ class KsefPurchaseWindow(tk.Toplevel):
         d_from = _waw_datetime_from_date(self._de_from.get_date(), end_of_day=False)
         d_to = _waw_datetime_from_date(self._de_to.get_date(), end_of_day=True)
 
-        warn = max_range_days_warning(d_from, d_to)
-        if warn and not messagebox.askyesno("Zakres dat", warn + "\n\nKontynuować?", parent=self):
+        # API KSeF odrzuca dateRange > 3 miesiące (kalendarzowo).
+        if _ksef_range_exceeds_months(d_from, d_to, max_months=3):
+            messagebox.showerror(
+                "Zakres dat",
+                "Zakres dat przekracza 3 miesiące — API KSeF odrzuci zapytanie metadanych.\n\n"
+                "Zawęź okres (albo użyj importu „wszystkich”, który dzieli zakres na części).",
+                parent=self,
+            )
             return
 
         from_iso = _to_ksef_iso(d_from)
@@ -549,6 +618,172 @@ class KsefPurchaseWindow(tk.Toplevel):
                 def fail():
                     self._busy = False
                     messagebox.showerror("Import", format_ksef_error(e), parent=self)
+
+                self.after(0, fail)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_import_all_in_range(self) -> None:
+        """Pobiera metadane po wszystkich stronach w wybranym zakresie dat i importuje każdą fakturę do bazy."""
+        if self._busy:
+            return
+        tok, nip = self._get_token_nip()
+        if not tok or not nip:
+            messagebox.showwarning(
+                "KSeF",
+                "Brak tokenu lub NIP. Ustaw w Plik → Ustawienia integracji… lub KSEF_TOKEN / KSEF_NIP.",
+                parent=self,
+            )
+            return
+
+        d_from = _waw_datetime_from_date(self._de_from.get_date(), end_of_day=False)
+        d_to = _waw_datetime_from_date(self._de_to.get_date(), end_of_day=True)
+        warn = max_range_days_warning(d_from, d_to)
+        if warn:
+            if not messagebox.askyesno(
+                "Zakres dat",
+                warn
+                + "\n\nImport „wszystkich” podzieli zakres na mniejsze części i pobierze je kolejno.\n"
+                "Kontynuować?",
+                parent=self,
+            ):
+                return
+
+        if not messagebox.askyesno(
+            "Import wszystkich dokumentów",
+            "Zostaną pobrane z KSeF i zapisane w bazie wszystkie faktury spełniające kryteria "
+            "(wybrany zakres dat, typ daty, sortowanie) — wszystkie strony wyniku z API.\n\n"
+            "Może to chwilę potrwać i wykonać wiele żądań.\n\nKontynuować?",
+            parent=self,
+        ):
+            return
+
+        ctx = get_context_organization_id()
+        if ctx is None:
+            if not messagebox.askyesno(
+                "Import",
+                "Na głównym oknie nie wybrano „Moja firma (kontekst)”. "
+                "Import utworzy lub dopasuje organizację nabywcy po NIP z XML.\n\nKontynuować?",
+                parent=self,
+            ):
+                return
+
+        psize = self._parse_page_size()
+        d_type = self._date_type.get()
+        sort_o = self._sort_order.get()
+        base = self._base_url
+
+        self._busy = True
+        self._update_nav_state()
+        self._status.set("Import wszystkich — przygotowanie…")
+
+        # Limit stron (API ma też limit ~10k rekordów na zapytanie)
+        _MAX_PAGES_SAFETY = 600
+
+        def work():
+            ok_lines: list[str] = []
+            err_lines: list[str] = []
+            ok_n = 0
+            truncated = False
+            total_meta = 0
+            try:
+                access = obtain_access_token(base, ksef_token=tok, nip=nip)
+                chunks = _iter_ksef_date_chunks(d_from, d_to, max_months=3) or [(d_from, d_to)]
+                for chunk_idx, (c_from, c_to) in enumerate(chunks, start=1):
+                    from_iso = _to_ksef_iso(c_from)
+                    to_iso = _to_ksef_iso(c_to)
+                    page_idx = 0
+                    while True:
+                        if page_idx >= _MAX_PAGES_SAFETY:
+                            err_lines.append(
+                                f"Przerwano: przekroczono limit bezpieczeństwa ({_MAX_PAGES_SAFETY} stron) "
+                                f"dla części {chunk_idx}/{len(chunks)}."
+                            )
+                            break
+                        pi = page_idx
+
+                        def upd_status():
+                            self._status.set(
+                                f"Import wszystkich — zakres {chunk_idx}/{len(chunks)}, strona API {pi + 1}, "
+                                f"pobrano metadanych: {total_meta}, zaimportowano OK: {ok_n}…"
+                            )
+
+                        self.after(0, upd_status)
+
+                        data = query_purchase_invoices_metadata(
+                            base,
+                            access,
+                            date_from_iso=from_iso,
+                            date_to_iso=to_iso,
+                            date_type=d_type,
+                            sort_order=sort_o,
+                            page_index=page_idx,
+                            page_size=psize,
+                        )
+                        invoices: list[dict[str, Any]] = list(data.get("invoices") or [])
+                        total_meta += len(invoices)
+                        if bool(data.get("isTruncated")):
+                            truncated = True
+
+                        hm = data.get("hasMore")
+                        if hm is None:
+                            hm = data.get("has_more")
+                        has_more = bool(hm)
+
+                        for inv in invoices:
+                            kn = (inv.get("ksefNumber") or "").strip()
+                            if not kn:
+                                continue
+                            try:
+                                xml = download_invoice_xml(base, access, kn)
+                                iid, notes = import_fa_purchase_xml_to_db(
+                                    xml,
+                                    buyer_org_id=ctx,
+                                    ksef_number=kn,
+                                )
+                                ok_n += 1
+                                extra = " " + "; ".join(notes) if notes else ""
+                                if len(ok_lines) < 40:
+                                    ok_lines.append(f"{kn} → InvoiceId={iid}{extra}")
+                            except Exception as e:
+                                err_lines.append(f"{kn}: {e!s}")
+
+                        if not has_more:
+                            break
+                        page_idx += 1
+
+                def finish():
+                    self._busy = False
+                    self._update_nav_state()
+                    self._refresh_main_invoice_list()
+                    tail = ""
+                    if truncated:
+                        tail = "\n\nUwaga: API zwróciło isTruncated=true — część danych może wymagać węższego zakresu dat."
+                    self._status.set(
+                        f"Import wszystkich zakończony: OK {ok_n}, błędy {len(err_lines)}."
+                    )
+                    msg = (
+                        f"Zaimportowano poprawnie: {ok_n}.\n"
+                        f"Błędy: {len(err_lines)}.\n"
+                        f"Łącznie rekordów metadanych (wszystkie strony): {total_meta}."
+                        f"{tail}"
+                    )
+                    if ok_lines:
+                        msg += "\n\n--- Przykładowe OK (do " + str(len(ok_lines)) + ") ---\n"
+                        msg += "\n".join(ok_lines)
+                    if err_lines:
+                        msg += "\n\n--- Błędy (fragment) ---\n" + "\n".join(err_lines[:25])
+                    if len(err_lines) > 25:
+                        msg += f"\n… i {len(err_lines) - 25} więcej."
+                    messagebox.showinfo("Import wszystkich", msg[:8000], parent=self)
+
+                self.after(0, finish)
+            except Exception as e:
+
+                def fail():
+                    self._busy = False
+                    self._update_nav_state()
+                    messagebox.showerror("Import wszystkich", format_ksef_error(e), parent=self)
 
                 self.after(0, fail)
 

@@ -1,4 +1,4 @@
-"""Budowa dokumentu FA (2) (XML) z danych `get_invoice_full`."""
+"""Budowa dokumentu FA (3) (XML) z danych `get_invoice_full`."""
 from __future__ import annotations
 
 import re
@@ -7,7 +7,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 from xml.etree import ElementTree as ET
 
-NS = "http://crd.gov.pl/wzor/2023/06/29/12648/"
+# FA(3) v1-0E (obowiązkowe w KSeF 2.0 na produkcji od 2026-02-01)
+NS = "http://crd.gov.pl/wzor/2025/06/25/13775/"
 
 
 def Q(tag: str) -> str:
@@ -24,9 +25,9 @@ def _q8(x: float | Decimal) -> str:
     return format(d, "f")
 
 
-def _format_ilosci_fa2(x: float | Decimal) -> str:
+def _format_ilosci_fa(x: float | Decimal) -> str:
     """
-    Typ TIlosci w FA(2) — wzorzec nie akceptuje np. '10.00000000' (_q8);
+    Typ TIlosci — wzorzec nie akceptuje np. '10.00000000' (_q8);
     liczby całkowite zapisujemy bez części ułamkowej (por. przykłady MF: <P_8B>1</P_8B>).
     """
     d = Decimal(str(x)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
@@ -83,7 +84,7 @@ def _xml_escape_text(text: str) -> str:
 
 
 def invoice_header_is_kor(header: dict) -> bool:
-    """Faktura korygująca FA(2) — RodzajFaktury KOR."""
+    """Faktura korygująca — RodzajFaktury KOR."""
     return "korekt" in (header.get("TypeName") or "").lower()
 
 
@@ -92,16 +93,16 @@ def tax_rate_to_stawka(tax: float) -> str:
     allowed = (23, 22, 8, 7, 5, 0)
     if t not in allowed:
         raise ValueError(
-            f"Nieobsługiwana stawka VAT ({tax}). Dla KSeF (FA2) obsługiwane: {allowed}."
+            f"Nieobsługiwana stawka VAT ({tax}). Dla KSeF (FA) obsługiwane: {allowed}."
         )
     return str(t)
 
 
-def compute_fa2_lines(
+def compute_fa_lines(
     header: dict, details: list[dict]
 ) -> tuple[list[dict], Decimal, dict[str, tuple[Decimal, Decimal]], str, str, bool]:
     """
-    Oblicza pozycje i sumy wg reguł FA(2) (te same co w XML).
+    Oblicza pozycje i sumy wg reguł FA (te same co w XML).
     Dla faktury korygującej (KOR) kwoty w pozycjach i sumach to różnice (mogą być ujemne).
     Zwraca: lines_calc, suma brutto (P_15), agregacja stawek, NIP sprzedawcy, NIP nabywcy, is_kor.
     """
@@ -116,7 +117,7 @@ def compute_fa2_lines(
 
     nip_naby = _nip_digits(header.get("CuNIP"))
     if len(nip_naby) != 10:
-        raise ValueError("Nabywca musi mieć poprawny NIP (10 cyfr) do FA(2).")
+        raise ValueError("Nabywca musi mieć poprawny NIP (10 cyfr).")
 
     gross_sum = Decimal("0")
 
@@ -195,9 +196,9 @@ def _emit_agg_p13(
             ET.SubElement(fa, Q("P_13_6_1")).text = _q2(n0)
 
 
-def build_fa2_invoice_xml(header: dict, details: list[dict]) -> str:
+def build_fa3_invoice_xml(header: dict, details: list[dict]) -> str:
     """Zwraca XML jako str (UTF-8, z deklaracją)."""
-    lines_calc, gross_sum, agg, nip_sprzed, nip_naby, is_kor = compute_fa2_lines(header, details)
+    lines_calc, gross_sum, agg, nip_sprzed, nip_naby, is_kor = compute_fa_lines(header, details)
 
     ET.register_namespace("", NS)
 
@@ -207,11 +208,11 @@ def build_fa2_invoice_xml(header: dict, details: list[dict]) -> str:
     kf = ET.SubElement(
         nag,
         Q("KodFormularza"),
-        {"kodSystemowy": "FA (2)", "wersjaSchemy": "1-0E"},
+        {"kodSystemowy": "FA (3)", "wersjaSchemy": "1-0E"},
     )
     kf.text = "FA"
     wf = ET.SubElement(nag, Q("WariantFormularza"))
-    wf.text = "2"
+    wf.text = "3"
     dw = ET.SubElement(nag, Q("DataWytworzeniaFa"))
     dw.text = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     si = ET.SubElement(nag, Q("SystemInfo"))
@@ -250,6 +251,10 @@ def build_fa2_invoice_xml(header: dict, details: list[dict]) -> str:
     ET.SubElement(adr2, Q("AdresL1")).text = _xml_escape_text(cu_l1[:512])
     if cu_l2:
         ET.SubElement(adr2, Q("AdresL2")).text = _xml_escape_text(cu_l2[:512])
+
+    # FA(3): pola obowiązkowe w Podmiot2
+    ET.SubElement(p2, Q("JST")).text = "2"
+    ET.SubElement(p2, Q("GV")).text = "2"
 
     fa = ET.SubElement(root, Q("Fa"))
     ET.SubElement(fa, Q("KodWaluty")).text = "PLN"
@@ -305,7 +310,7 @@ def build_fa2_invoice_xml(header: dict, details: list[dict]) -> str:
         ET.SubElement(fw, Q("NrWierszaFa")).text = str(i)
         ET.SubElement(fw, Q("P_7")).text = _xml_escape_text(str(ln["name"])[:256])
         ET.SubElement(fw, Q("P_8A")).text = _xml_escape_text(str(ln["unit"])[:256])
-        ET.SubElement(fw, Q("P_8B")).text = _format_ilosci_fa2(ln["qty"])
+        ET.SubElement(fw, Q("P_8B")).text = _format_ilosci_fa(ln["qty"])
         ET.SubElement(fw, Q("P_9A")).text = _q8(ln["price_net"])
         ET.SubElement(fw, Q("P_11")).text = _q2(ln["line_net"])
         ET.SubElement(fw, Q("P_12")).text = ln["stawka"]
@@ -317,3 +322,15 @@ def build_fa2_invoice_xml(header: dict, details: list[dict]) -> str:
     # register_namespace('', NS) wystarczy do domyślnego xmlns w serializacji.
     tree.write(buf, encoding="utf-8", xml_declaration=True)
     return buf.getvalue().decode("utf-8")
+
+
+# Backward-compatible alias (starsze importy w kodzie)
+def compute_fa2_lines(
+    header: dict, details: list[dict]
+) -> tuple[list[dict], Decimal, dict[str, tuple[Decimal, Decimal]], str, str, bool]:
+    return compute_fa_lines(header, details)
+
+
+# Backward-compatible alias (starsze importy w kodzie)
+def build_fa2_invoice_xml(header: dict, details: list[dict]) -> str:
+    return build_fa3_invoice_xml(header, details)
