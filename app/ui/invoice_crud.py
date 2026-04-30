@@ -44,6 +44,7 @@ class InvoiceCrud(tk.Toplevel):
         self._type_rev = {}
         self._svc_map = {}
         self._svc_rev = {}
+        self._svc_labels: list[str] = []
 
         # zmienne GUI
         self._init_vars()
@@ -195,16 +196,25 @@ class InvoiceCrud(tk.Toplevel):
         # Formularz pozycji
         row_f = ttk.Frame(frm_d)
         row_f.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
-        for c in range(8):
-            row_f.grid_columnconfigure(c, weight=1)
+        for c in range(9):
+            row_f.grid_columnconfigure(c, weight=0)
+        # Pole usługi dostaje większość dostępnej szerokości.
+        row_f.grid_columnconfigure(3, weight=1)
 
         ttk.Label(row_f, text="DetailId:").grid(row=0, column=0, sticky=tk.E, padx=PADX, pady=PADY)
         ttk.Entry(row_f, textvariable=self.var_detail_id, width=10, state="readonly")\
             .grid(row=0, column=1, sticky="w", padx=PADX, pady=PADY)
 
         ttk.Label(row_f, text="Usługa:").grid(row=0, column=2, sticky=tk.E, padx=PADX, pady=PADY)
-        self.cb_service = ttk.Combobox(row_f, textvariable=self.var_service, state="readonly")
+        self.cb_service = ttk.Combobox(
+            row_f,
+            textvariable=self.var_service,
+            state="normal",
+            width=48,
+            postcommand=self._refresh_service_filter_values,
+        )
         self.cb_service.grid(row=0, column=3, sticky="ew", padx=PADX, pady=PADY)
+        self.cb_service.bind("<KeyRelease>", self._on_service_search)
 
         ttk.Label(row_f, text="Ilość:").grid(row=0, column=4, sticky=tk.E, padx=PADX, pady=PADY)
         ttk.Entry(row_f, textvariable=self.var_quantity, width=12)\
@@ -286,7 +296,8 @@ class InvoiceCrud(tk.Toplevel):
         svc_rows = get_services()
         self._svc_map = {row["Name"]: row["ServiceId"] for row in svc_rows}
         self._svc_rev = {v: k for k, v in self._svc_map.items()}
-        self.cb_service["values"] = list(self._svc_map.keys())
+        self._svc_labels = list(self._svc_map.keys())
+        self.cb_service["values"] = self._svc_labels
 
         print(f"[DEBUG] lookups: org={len(self._org_map)}, pm={len(self._pm_map)}, st={len(self._status_map)}, tp={len(self._type_map)}, svc={len(self._svc_map)}")
 
@@ -308,6 +319,18 @@ class InvoiceCrud(tk.Toplevel):
 
     def _date_str_from_entry(self, de: DateEntry) -> str:
         return de.get_date().strftime(ISO_FMT)
+
+    def _refresh_service_filter_values(self) -> None:
+        """Odświeża listę usług zgodnie z aktualnym filtrem wpisanym w comboboxie."""
+        query = (self.var_service.get() or "").strip().lower()
+        if not query:
+            self.cb_service["values"] = self._svc_labels
+            return
+        filtered = [label for label in self._svc_labels if query in label.lower()]
+        self.cb_service["values"] = filtered
+
+    def _on_service_search(self, _evt=None) -> None:
+        self._refresh_service_filter_values()
 
     def clear_form(self):
         # header
