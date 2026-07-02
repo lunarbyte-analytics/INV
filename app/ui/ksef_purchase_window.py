@@ -295,6 +295,7 @@ class KsefPurchaseWindow(tk.Toplevel):
         self._tree.configure(yscrollcommand=yscroll.set)
         self._tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         yscroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self._tree.bind("<Button-3>", self._on_tree_right_click)
 
         self._busy = False
 
@@ -475,6 +476,51 @@ class KsefPurchaseWindow(tk.Toplevel):
             f"Strona {page_idx + 1} (po {psize} na stronę): {len(invoices)} faktur w widoku. "
             f"{'Dostępna następna strona (>)' if has_more else 'Ostatnia strona (hasMore=false).'}"
             + (" " + " ".join(extra) if extra else "")
+        )
+
+    def _on_tree_right_click(self, event) -> None:
+        row = self._tree.identify_row(event.y)
+        if row:
+            if row not in self._tree.selection():
+                self._tree.selection_set(row)
+        else:
+            return
+
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label="Kopiuj numer faktury",
+            command=self._copy_invoice_number_to_clipboard,
+        )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _copy_invoice_number_to_clipboard(self) -> None:
+        sel = self._tree.selection()
+        if not sel:
+            messagebox.showinfo("KSeF", "Zaznacz wiersz faktury.", parent=self)
+            return
+
+        numbers: list[str] = []
+        for iid in sel:
+            vals = self._tree.item(iid, "values")
+            if not vals or len(vals) < 2:
+                continue
+            num = str(vals[1]).strip()
+            if num:
+                numbers.append(num)
+
+        if not numbers:
+            messagebox.showinfo("KSeF", "Brak numeru faktury w zaznaczonym wierszu.", parent=self)
+            return
+
+        self.clipboard_clear()
+        self.clipboard_append("\n".join(numbers))
+        self.update_idletasks()
+        self._status.set(
+            f"Skopiowano numer faktury: {numbers[0]}"
+            + (f" (+{len(numbers) - 1})" if len(numbers) > 1 else "")
         )
 
     def _on_download_selected(self) -> None:

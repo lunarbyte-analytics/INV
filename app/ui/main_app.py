@@ -301,6 +301,7 @@ class MainApp(tk.Tk):
 
         self.tree_invoices.bind("<Double-1>", self.on_open_selected_invoice)
         self.tree_invoices.bind("<Return>", self.on_open_selected_invoice)
+        self.tree_invoices.bind("<Button-3>", self._on_invoice_list_right_click)
 
         btn_panel = ttk.Frame(root)
         btn_panel.pack(fill=tk.X, pady=(0, 6))
@@ -502,6 +503,47 @@ class MainApp(tk.Tk):
             return int(vals[0])  # 0 = InvoiceId
         except (ValueError, TypeError):
             return None
+
+    def _on_invoice_list_right_click(self, event) -> None:
+        row = self.tree_invoices.identify_row(event.y)
+        if row:
+            if row not in self.tree_invoices.selection():
+                self.tree_invoices.selection_set(row)
+        else:
+            return
+
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label="Kopiuj numer faktury",
+            command=self._copy_invoice_name_to_clipboard,
+        )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _copy_invoice_name_to_clipboard(self) -> None:
+        sel = self.tree_invoices.selection()
+        if not sel:
+            messagebox.showinfo("Lista faktur", "Zaznacz fakturę na liście.", parent=self)
+            return
+
+        numbers: list[str] = []
+        for iid in sel:
+            vals = self.tree_invoices.item(iid, "values")
+            if not vals or len(vals) < 3:
+                continue
+            num = str(vals[2]).strip()
+            if num:
+                numbers.append(num)
+
+        if not numbers:
+            messagebox.showinfo("Lista faktur", "Brak numeru faktury w zaznaczonym wierszu.", parent=self)
+            return
+
+        self.clipboard_clear()
+        self.clipboard_append("\n".join(numbers))
+        self.update_idletasks()
 
     def on_send_selected_to_ksef(self):
         inv_id = self._get_selected_invoice_id()
