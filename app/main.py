@@ -26,7 +26,29 @@ def main():
     except Exception:
         pass
     app = MainApp()
+    _apply_window_icon(app)
     app.mainloop()
+
+
+def _apply_window_icon(app: MainApp) -> None:
+    """Ikona okna / paska zadań (assets/inv.ico lub inv.png)."""
+    root = Path(__file__).resolve().parent.parent
+    ico = root / "assets" / "inv.ico"
+    png = root / "assets" / "inv.png"
+    try:
+        if ico.is_file():
+            app.iconbitmap(default=str(ico))
+    except Exception:
+        pass
+    try:
+        if png.is_file():
+            import tkinter as tk
+
+            img = tk.PhotoImage(file=str(png))
+            app.iconphoto(True, img)
+            app._app_icon_image = img  # referencja, żeby GC nie usunął
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

@@ -2,6 +2,9 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 
+REM Wskazówka: w Explorerze uruchamiaj skrót INV.lnk (ikona).
+REM Jeśli go nie ma — uruchom raz UtworzSkrotINV.bat.
+
 REM Uruchomienie z wirtualnego środowiska, jeśli istnieje (opcjonalnie utworzone przez: py -3 -m venv .venv)
 if exist ".venv\Scripts\python.exe" (
   ".venv\Scripts\python.exe" -m pip install -r "%~dp0requirements.txt" -q 2>nul
