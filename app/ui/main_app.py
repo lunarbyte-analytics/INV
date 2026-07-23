@@ -13,7 +13,7 @@ from ..app_env import (
 from ..ksef.debug_log import ksef_debug
 from ..ksef.invoice_submit import format_ksef_error, send_invoice_to_ksef
 from ..restart_util import restart_application
-from ..models.invoice import get_invoice_list, get_organizations, update_invoice
+from ..models.invoice import get_invoice_list, get_invoice_seller_organizations, get_organizations, update_invoice
 from ..reports.invoice_pdf import generate_invoice_pdf, open_preview
 
 from .invoice_crud import InvoiceCrud
@@ -26,6 +26,7 @@ from .calendar_view import CalendarWindow
 from .ksef_connection import KsefConnectionWindow
 from .ksef_purchase_window import KsefPurchaseWindow
 from .settings_window import IntegrationSettingsWindow
+from .treeview_sort import bind_treeview_heading_sort
 
 
 class MainApp(tk.Tk):
@@ -180,6 +181,30 @@ class MainApp(tk.Tk):
             self._var_flow.set(self._flow_labels[0])
         self.refresh_invoice_list()
 
+    def _populate_seller_combo(self):
+        """Lista sprzedawców: wszyscy + organizacje występujące jako CompanyId na fakturach."""
+        self._seller_labels_to_id: dict[str, int] = {}
+        prev = self._var_seller.get() if hasattr(self, "_var_seller") else ""
+        labels = ["— Wszyscy sprzedawcy —"]
+        for r in get_invoice_seller_organizations():
+            oid = int(r["OrganizationId"])
+            lab = self._org_display_label(oid, r["Name"] or "")
+            self._seller_labels_to_id[lab] = oid
+            labels.append(lab)
+        self.cb_seller["values"] = labels
+        if prev in labels:
+            self.cb_seller.set(prev)
+        else:
+            self.cb_seller.set(labels[0])
+    def _on_seller_filter_selected(self, _evt=None):
+        self.refresh_invoice_list()
+
+    def _selected_seller_company_id(self) -> int | None:
+        lab = self._var_seller.get() if hasattr(self, "_var_seller") else ""
+        if not lab or lab.startswith("—"):
+            return None
+        return self._seller_labels_to_id.get(lab) if hasattr(self, "_seller_labels_to_id") else None
+
     def _show_invoice_list_help(self):
         win = tk.Toplevel(self)
         win.title("Pomoc — lista faktur")
@@ -190,6 +215,7 @@ class MainApp(tk.Tk):
         msg = (
             "Kolumna „Typ”: względem „Mojej firmy” — Sprzedaż = wystawiasz fakturę, "
             "Zakup = otrzymujesz. Dla faktury korygującej dopisywane jest „korekta” (np. „Sprzedaż korekta”).\n\n"
+            "Filtr „Sprzedawca” zawęża listę do faktur wystawionych przez wybraną organizację.\n\n"
             "Dwuklik lub Enter — edycja faktury. Druk i zmiana statusu — przyciski pod listą."
         )
         ttk.Label(frm, text=msg, wraplength=440, justify=tk.LEFT).pack(anchor=tk.W)
@@ -243,8 +269,20 @@ class MainApp(tk.Tk):
         )
         self.cb_flow.pack(side=tk.LEFT, padx=6)
         self.cb_flow.bind("<<ComboboxSelected>>", self._on_flow_filter_selected)
-        self._populate_context_org_combo()
 
+        ttk.Label(filter_bar, text="Sprzedawca:").pack(side=tk.LEFT, padx=(16, 0))
+        self._var_seller = tk.StringVar()
+        self.cb_seller = ttk.Combobox(
+            filter_bar,
+            textvariable=self._var_seller,
+            width=36,
+            state="readonly",
+        )
+        self.cb_seller.pack(side=tk.LEFT, padx=6)
+        self.cb_seller.bind("<<ComboboxSelected>>", self._on_seller_filter_selected)
+
+        self._populate_context_org_combo()
+        self._populate_seller_combo()
         # Kontener na tabelę + scrollbary
         table_frame = ttk.Frame(root)
         table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -270,16 +308,17 @@ class MainApp(tk.Tk):
             selectmode="browse"
         )
 
-        self.tree_invoices.heading("InvoiceId", text="ID")
-        self.tree_invoices.heading("FlowRole", text="Typ")
-        self.tree_invoices.heading("Name", text="Numer")
-        self.tree_invoices.heading("CreateDate", text="Data")
-        self.tree_invoices.heading("StatusName", text="Status")
-        self.tree_invoices.heading("CompanyName", text="Sprzedawca")
-        self.tree_invoices.heading("CustomerName", text="Nabywca")
-        self.tree_invoices.heading("KsefReferenceNumber", text="KSeF — nr ref.")
-        self.tree_invoices.heading("KsefSentAt", text="KSeF — wysłano")
-
+        inv_labels = {
+            "InvoiceId": "ID",
+            "FlowRole": "Typ",
+            "Name": "Numer",
+            "CreateDate": "Data",
+            "StatusName": "Status",
+            "CompanyName": "Sprzedawca",
+            "CustomerName": "Nabywca",
+            "KsefReferenceNumber": "KSeF — nr ref.",
+            "KsefSentAt": "KSeF — wysłano",
+        }
         self.tree_invoices.column("InvoiceId", width=60, anchor="e")
         self.tree_invoices.column("FlowRole", width=170, anchor="w")
         self.tree_invoices.column("Name", width=130, anchor="w")
@@ -290,6 +329,15 @@ class MainApp(tk.Tk):
         self.tree_invoices.column("KsefReferenceNumber", width=280, anchor="w")
         self.tree_invoices.column("KsefSentAt", width=150, anchor="center")
 
+        self._invoice_list_sort_state = {"col": None, "reverse": False}
+        self._sort_invoice_list = bind_treeview_heading_sort(
+            self.tree_invoices,
+            columns=self._cols_data,
+            labels=inv_labels,
+            numeric_cols={"InvoiceId"},
+            date_cols={"CreateDate", "KsefSentAt"},
+            state_holder=self._invoice_list_sort_state,
+        )
         self.tree_invoices.grid(row=0, column=0, sticky="nsew")
 
         # Scrollbary
@@ -597,6 +645,8 @@ class MainApp(tk.Tk):
         """Załaduj dane do self.tree_invoices na głównym oknie."""
         if not hasattr(self, "tree_invoices"):
             return
+        if hasattr(self, "cb_seller"):
+            self._populate_seller_combo()
         for i in self.tree_invoices.get_children():
             self.tree_invoices.delete(i)
 
@@ -610,7 +660,11 @@ class MainApp(tk.Tk):
         ff = flow_map.get(lab)
         if ff in ("sales", "purchase") and ctx is None:
             ff = None
-        rows = get_invoice_list(context_org_id=ctx, flow_filter=ff)
+        rows = get_invoice_list(
+            context_org_id=ctx,
+            flow_filter=ff,
+            company_id=self._selected_seller_company_id(),
+        )
 
         self._invoice_meta = {}
         for r in rows:
@@ -634,3 +688,10 @@ class MainApp(tk.Tk):
                     sent,
                 ),
             )
+        col = (
+            self._invoice_list_sort_state.get("col")
+            if hasattr(self, "_invoice_list_sort_state")
+            else None
+        )
+        if col and hasattr(self, "_sort_invoice_list"):
+            self._sort_invoice_list(col, toggle=False)

@@ -20,6 +20,7 @@ from ..models.organization import (
     create_organization,
     find_organization_id_by_nip_digits,
     get_organization_by_id,
+    update_organization,
 )
 from ..models.record_source import RECORD_SOURCE_KSEF_IMPORT
 from ..models.service import create_service
@@ -72,6 +73,62 @@ def _date_only(s: str) -> str:
     return t[:10] if t else ""
 
 
+def _parse_decimal(s: str) -> Decimal | None:
+    t = (s or "").strip().replace(",", ".").replace(" ", "")
+    if not t:
+        return None
+    try:
+        return Decimal(t)
+    except Exception:
+        return None
+
+
+def _vat_rate_fraction(stawka: str) -> Decimal | None:
+    """Zwraca ułamek VAT (np. 0.08 dla „8”) albo None gdy nieznany."""
+    s = (stawka or "").strip().lower().replace("%", "").strip()
+    if s in ("np", "oo", "zw", ""):
+        return Decimal("0")
+    if re.match(r"^\d+$", s) or re.match(r"^\d+[.,]\d+$", s):
+        return Decimal(s.replace(",", ".")) / Decimal("100")
+    return None
+
+
+def _unit_price_net_from_wiersz(ch: ET.Element, qty: Decimal) -> Decimal:
+    """
+    Cena jednostkowa netto z FaWiersz.
+    Kolejność: P_9A → P_11/ilość → P_9B (brutto→netto) → P_11A/ilość (brutto→netto).
+    """
+    p9a = _parse_decimal(_text(_child(ch, "P_9A")))
+    if p9a is not None and p9a != 0:
+        return p9a
+
+    p11 = _parse_decimal(_text(_child(ch, "P_11")))
+    if p11 is not None and qty != 0:
+        return (p11 / qty).quantize(Decimal("0.00000001"), rounding=ROUND_HALF_UP)
+
+    stawka = _text(_child(ch, "P_12")) or "23"
+    rate = _vat_rate_fraction(stawka)
+
+    p9b = _parse_decimal(_text(_child(ch, "P_9B")))
+    if p9b is not None and p9b != 0:
+        if rate is not None:
+            return (p9b / (Decimal("1") + rate)).quantize(
+                Decimal("0.00000001"), rounding=ROUND_HALF_UP
+            )
+        return p9b
+
+    p11a = _parse_decimal(_text(_child(ch, "P_11A")))
+    if p11a is not None and qty != 0:
+        gross_unit = p11a / qty
+        if rate is not None:
+            return (gross_unit / (Decimal("1") + rate)).quantize(
+                Decimal("0.00000001"), rounding=ROUND_HALF_UP
+            )
+        return gross_unit.quantize(Decimal("0.00000001"), rounding=ROUND_HALF_UP)
+
+    return Decimal("0")
+
+
 @dataclass
 class FaParty:
     nip: str
@@ -101,6 +158,24 @@ class FaParsed:
     seller: FaParty
     buyer: FaParty
     lines: list[FaLine]
+    seller_bank: str | None = None
+
+
+def _parse_seller_bank_account(fa_el: ET.Element) -> str | None:
+    """
+    Numer rachunku sprzedawcy z Fa/Platnosc/RachunekBankowy/NrRB
+    (pierwszy wypełniony, bez spacji).
+    """
+    plat = _child(fa_el, "Platnosc")
+    if plat is None:
+        return None
+    for ch in plat:
+        if _local(ch.tag) != "RachunekBankowy":
+            continue
+        nrrb = _text(_child(ch, "NrRB"))
+        if nrrb:
+            return re.sub(r"\s+", "", nrrb)
+    return None
 
 
 def _parse_party(pod: ET.Element | None) -> FaParty:
@@ -169,16 +244,11 @@ def parse_fa_xml(xml_bytes: bytes) -> FaParsed:
         p7 = _text(_child(ch, "P_7")) or "Pozycja"
         p8a = _text(_child(ch, "P_8A")) or "szt."
         p8b = _text(_child(ch, "P_8B")) or "1"
-        p9a = _text(_child(ch, "P_9A")) or "0"
         p12 = _text(_child(ch, "P_12")) or "23"
-        try:
-            qty = Decimal(str(p8b.replace(",", ".")))
-        except Exception:
+        qty = _parse_decimal(p8b) or Decimal("1")
+        if qty == 0:
             qty = Decimal("1")
-        try:
-            price_net = Decimal(str(p9a.replace(",", ".")))
-        except Exception:
-            price_net = Decimal("0")
+        price_net = _unit_price_net_from_wiersz(ch, qty)
         lines.append(
             FaLine(
                 name=p7[:512],
@@ -192,6 +262,8 @@ def parse_fa_xml(xml_bytes: bytes) -> FaParsed:
     if not lines:
         raise ValueError("Brak pozycji FaWiersz — import odrzucony.")
 
+    seller_bank = _parse_seller_bank_account(fa_el)
+
     return FaParsed(
         rodzaj=rodzaj,
         currency=currency,
@@ -201,6 +273,7 @@ def parse_fa_xml(xml_bytes: bytes) -> FaParsed:
         seller=seller,
         buyer=buyer,
         lines=lines,
+        seller_bank=seller_bank,
     )
 
 
@@ -235,9 +308,15 @@ def _ensure_unit(code: str) -> int:
     return create_unit(c, c[:64], 0, record_source=RECORD_SOURCE_KSEF_IMPORT)
 
 
-def _ensure_organization(party: FaParty) -> int:
+def _ensure_organization(party: FaParty, *, bank_account: str | None = None) -> int:
+    bank = (bank_account or "").strip()
     oid = find_organization_id_by_nip_digits(party.nip)
     if oid is not None:
+        if bank:
+            row = get_organization_by_id(oid)
+            current = ((row["BankAccountNbr"] if row else None) or "").strip()
+            if current != bank:
+                update_organization(oid, BankAccountNbr=bank)
         return oid
     if len(_nip_norm(party.nip)) != 10:
         raise ValueError(
@@ -261,7 +340,7 @@ def _ensure_organization(party: FaParty) -> int:
         party.nip,
         "",
         "",
-        "",
+        bank,
         record_source=RECORD_SOURCE_KSEF_IMPORT,
     )
 
@@ -311,15 +390,21 @@ def import_fa_purchase_xml_to_db(
             notes.append("Dodano nową organizację nabywcy z faktury.")
 
     seller_existed = find_organization_id_by_nip_digits(data.seller.nip) is not None
-    company_id = _ensure_organization(data.seller)
+    company_id = _ensure_organization(data.seller, bank_account=data.seller_bank)
     if not seller_existed:
         notes.append("Dodano nową organizację sprzedawcy z faktury.")
+    elif data.seller_bank:
+        notes.append(f"Konto sprzedawcy z KSeF: {data.seller_bank}")
 
     inv_name = (data.p2 or "").strip() or f"Import {data.p1}"
     dup = find_invoice_by_party_and_name(company_id, customer_id, inv_name)
     if dup is not None:
         if skip_duplicate:
-            return dup, [f"Pominięto duplikat — już jest faktura InvoiceId={dup}."]
+            # Konto mogło być uzupełnione powyżej — i tak kończymy jako duplikat.
+            return dup, [
+                f"Pominięto duplikat — już jest faktura InvoiceId={dup}.",
+                *([f"Konto sprzedawcy z KSeF: {data.seller_bank}"] if data.seller_bank else []),
+            ]
         raise ValueError(f"Duplikat: InvoiceId={dup}")
 
     d_create = data.p1 or ""
@@ -343,7 +428,10 @@ def import_fa_purchase_xml_to_db(
     for i, ln in enumerate(data.lines, start=1):
         tax_id = _resolve_tax_id(ln.stawka)
         unit_id = _ensure_unit(ln.unit)
-        price = float(ln.price_net.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        # P_9A w FA dopuszcza do 8 miejsc — zachowujemy precyzję (ważne przy paliwach: P_11/ilość).
+        price = float(
+            ln.price_net.quantize(Decimal("0.00000001"), rounding=ROUND_HALF_UP)
+        )
         qty_f = float(ln.qty)
         svc_name = (
             f"{ln.name[:120]} (import #{i})" if len(data.lines) > 1 else ln.name[:240]

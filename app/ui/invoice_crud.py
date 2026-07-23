@@ -14,10 +14,16 @@ from ..models.invoice import (
     get_ksef_submissions_for_invoice,
     validate_correction_link,
 )
+from .treeview_sort import bind_treeview_heading_sort
 
 ISO_FMT = "%Y-%m-%d"
 PADX = 8
 PADY = 6
+
+
+def _format_pl_amount(value: float) -> str:
+    """Kwota w formacie polskim: XXXX,YY (np. 318,42)."""
+    return f"{float(value):.2f}".replace(".", ",")
 
 
 class InvoiceCrud(tk.Toplevel):
@@ -72,6 +78,7 @@ class InvoiceCrud(tk.Toplevel):
         self.var_is_add_addr = tk.IntVar(value=0)
         self.var_corrected_id = tk.StringVar()
         self.var_correction_reason = tk.StringVar()
+        self.var_seller_bank = tk.StringVar()
 
         # details
         self.var_detail_id = tk.StringVar()
@@ -95,10 +102,23 @@ class InvoiceCrud(tk.Toplevel):
         ttk.Entry(frm, textvariable=self.var_invoice_id, width=10, state="readonly")\
             .grid(row=0, column=1, sticky="w", padx=PADX, pady=PADY)
 
-        # Nazwa
+        # Nazwa + kopiuj
         ttk.Label(frm, text="Nazwa:").grid(row=0, column=2, sticky=tk.E, padx=PADX, pady=PADY)
-        ttk.Entry(frm, textvariable=self.var_name)\
-            .grid(row=0, column=3, columnspan=5, sticky="ew", padx=PADX, pady=PADY)
+        name_row = ttk.Frame(frm)
+        name_row.grid(row=0, column=3, columnspan=5, sticky="ew", padx=PADX, pady=PADY)
+        name_row.columnconfigure(0, weight=1)
+        ttk.Entry(name_row, textvariable=self.var_name).grid(row=0, column=0, sticky="ew")
+        btn_copy_name = ttk.Button(
+            name_row,
+            text="Kopiuj",
+            width=8,
+            command=self._copy_invoice_name,
+        )
+        btn_copy_name.grid(row=0, column=1, padx=(6, 0))
+        try:
+            btn_copy_name.configure(cursor="hand2")
+        except tk.TclError:
+            pass
 
         # Sprzedawca
         ttk.Label(frm, text="Sprzedawca:").grid(row=1, column=0, sticky=tk.E, padx=PADX, pady=PADY)
@@ -120,51 +140,71 @@ class InvoiceCrud(tk.Toplevel):
         self.cb_status = ttk.Combobox(frm, textvariable=self.var_status, state="readonly")
         self.cb_status.grid(row=1, column=7, sticky="ew", padx=PADX, pady=PADY)
 
+        # Konto sprzedawcy (z KSeF / Organization.BankAccountNbr)
+        ttk.Label(frm, text="Konto sprzedawcy:").grid(row=2, column=0, sticky=tk.E, padx=PADX, pady=PADY)
+        bank_row = ttk.Frame(frm)
+        bank_row.grid(row=2, column=1, columnspan=5, sticky="ew", padx=PADX, pady=PADY)
+        bank_row.columnconfigure(0, weight=1)
+        ttk.Entry(bank_row, textvariable=self.var_seller_bank, state="readonly").grid(
+            row=0, column=0, sticky="ew"
+        )
+        btn_copy_bank = ttk.Button(
+            bank_row,
+            text="Kopiuj",
+            width=8,
+            command=self._copy_seller_bank,
+        )
+        btn_copy_bank.grid(row=0, column=1, padx=(6, 0))
+        try:
+            btn_copy_bank.configure(cursor="hand2")
+        except tk.TclError:
+            pass
+
         # Typ
-        ttk.Label(frm, text="Typ:").grid(row=2, column=0, sticky=tk.E, padx=PADX, pady=PADY)
+        ttk.Label(frm, text="Typ:").grid(row=3, column=0, sticky=tk.E, padx=PADX, pady=PADY)
         self.cb_type = ttk.Combobox(frm, textvariable=self.var_type, state="readonly")
-        self.cb_type.grid(row=2, column=1, sticky="ew", padx=PADX, pady=PADY)
+        self.cb_type.grid(row=3, column=1, sticky="ew", padx=PADX, pady=PADY)
 
         # Adres dodatkowy (checkbox)
         ttk.Checkbutton(frm, text="Użyć adresu dodatkowego nabywcy", variable=self.var_is_add_addr)\
-            .grid(row=2, column=2, columnspan=2, sticky="w", padx=PADX, pady=PADY)
+            .grid(row=3, column=2, columnspan=2, sticky="w", padx=PADX, pady=PADY)
 
         # Daty (DateEntry — wybór z kalendarza)
         _cal_kw = {"firstweekday": "monday"}
-        ttk.Label(frm, text="Data wyst.:").grid(row=3, column=0, sticky=tk.E, padx=PADX, pady=PADY)
+        ttk.Label(frm, text="Data wyst.:").grid(row=4, column=0, sticky=tk.E, padx=PADX, pady=PADY)
         self._de_create_date = DateEntry(
             frm,
             width=12,
             date_pattern="yyyy-mm-dd",
             calendar_kw=_cal_kw,
         )
-        self._de_create_date.grid(row=3, column=1, sticky="w", padx=PADX, pady=PADY)
+        self._de_create_date.grid(row=4, column=1, sticky="w", padx=PADX, pady=PADY)
 
-        ttk.Label(frm, text="Data sprzedaży:").grid(row=3, column=2, sticky=tk.E, padx=PADX, pady=PADY)
+        ttk.Label(frm, text="Data sprzedaży:").grid(row=4, column=2, sticky=tk.E, padx=PADX, pady=PADY)
         self._de_sales_date = DateEntry(
             frm,
             width=12,
             date_pattern="yyyy-mm-dd",
             calendar_kw=_cal_kw,
         )
-        self._de_sales_date.grid(row=3, column=3, sticky="w", padx=PADX, pady=PADY)
+        self._de_sales_date.grid(row=4, column=3, sticky="w", padx=PADX, pady=PADY)
 
-        ttk.Label(frm, text="Termin płat.:").grid(row=3, column=4, sticky=tk.E, padx=PADX, pady=PADY)
+        ttk.Label(frm, text="Termin płat.:").grid(row=4, column=4, sticky=tk.E, padx=PADX, pady=PADY)
         self._de_payment_date = DateEntry(
             frm,
             width=12,
             date_pattern="yyyy-mm-dd",
             calendar_kw=_cal_kw,
         )
-        self._de_payment_date.grid(row=3, column=5, sticky="w", padx=PADX, pady=PADY)
+        self._de_payment_date.grid(row=4, column=5, sticky="w", padx=PADX, pady=PADY)
 
-        ttk.Label(frm, text="Koryguje fakturę (ID):").grid(row=4, column=0, sticky=tk.E, padx=PADX, pady=PADY)
+        ttk.Label(frm, text="Koryguje fakturę (ID):").grid(row=5, column=0, sticky=tk.E, padx=PADX, pady=PADY)
         ttk.Entry(frm, textvariable=self.var_corrected_id, width=12).grid(
-            row=4, column=1, sticky="w", padx=PADX, pady=PADY
+            row=5, column=1, sticky="w", padx=PADX, pady=PADY
         )
-        ttk.Label(frm, text="Przyczyna korekty:").grid(row=4, column=2, sticky=tk.E, padx=PADX, pady=PADY)
+        ttk.Label(frm, text="Przyczyna korekty:").grid(row=5, column=2, sticky=tk.E, padx=PADX, pady=PADY)
         ttk.Entry(frm, textvariable=self.var_correction_reason, width=52).grid(
-            row=4, column=3, columnspan=5, sticky="ew", padx=PADX, pady=PADY
+            row=5, column=3, columnspan=5, sticky="ew", padx=PADX, pady=PADY
         )
 
         self._frm_ksef = ttk.LabelFrame(self, text="KSeF — historia wysyłek (API)")
@@ -251,21 +291,95 @@ class InvoiceCrud(tk.Toplevel):
             ("VAT","VAT",100,"e"),
             ("Brutto","Brutto",110,"e"),
         ]
-        for key, label, w, anchor in heads:
-            self.tree_details.heading(key, text=label)
+        detail_cols = tuple(h[0] for h in heads)
+        detail_labels = {h[0]: h[1] for h in heads}
+        for key, _label, w, anchor in heads:
             self.tree_details.column(key, width=w, anchor=anchor, stretch=True)
+        self._details_sort_state = {"col": None, "reverse": False}
+        self._sort_details = bind_treeview_heading_sort(
+            self.tree_details,
+            columns=detail_cols,
+            labels=detail_labels,
+            numeric_cols={
+                "InvoiceDetailId",
+                "Quantity",
+                "UnitPrice",
+                "TaxValue",
+                "Netto",
+                "VAT",
+                "Brutto",
+            },
+            state_holder=self._details_sort_state,
+        )
 
         self.tree_details.bind("<<TreeviewSelect>>", self.on_select_detail)
         self.tree_details.grid(row=0, column=0, sticky="nsew")
 
         yscroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree_details.yview)
         xscroll = ttk.Scrollbar(table_frame, orient="horizontal", command=self.tree_details.xview)
-        self.tree_details.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set) 
+        self.tree_details.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
         yscroll.grid(row=0, column=1, sticky="ns")
         xscroll.grid(row=1, column=0, sticky="ew")
 
+        # Sumy całej faktury (do zapłaty = brutto)
+        totals = ttk.Frame(frm_d)
+        totals.grid(row=2, column=0, sticky="ew", padx=5, pady=(4, 8))
+        self.var_total_netto = tk.StringVar(value="0.00")
+        self.var_total_vat = tk.StringVar(value="0.00")
+        self.var_total_brutto = tk.StringVar(value="0,00")
+        ttk.Label(totals, text="Razem netto:").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(totals, textvariable=self.var_total_netto, width=12, anchor="e").pack(side=tk.LEFT)
+        ttk.Label(totals, text="VAT:").pack(side=tk.LEFT, padx=(16, 4))
+        ttk.Label(totals, textvariable=self.var_total_vat, width=12, anchor="e").pack(side=tk.LEFT)
+        ttk.Label(totals, text="Do zapłaty (brutto):", font=("Segoe UI", 10, "bold")).pack(
+            side=tk.LEFT, padx=(24, 4)
+        )
+        ttk.Label(
+            totals,
+            textvariable=self.var_total_brutto,
+            font=("Segoe UI", 11, "bold"),
+            width=14,
+            anchor="e",
+        ).pack(side=tk.LEFT)
+        btn_copy_brutto = ttk.Button(
+            totals,
+            text="Kopiuj",
+            width=8,
+            command=self._copy_total_brutto,
+        )
+        btn_copy_brutto.pack(side=tk.LEFT, padx=(8, 0))
+        try:
+            btn_copy_brutto.configure(cursor="hand2")
+        except tk.TclError:
+            pass
 
-    # ---------------------- LOOKUPS -------------------------
+    def _copy_to_clipboard(self, text: str, *, empty_msg: str) -> None:
+        value = (text or "").strip()
+        if not value:
+            messagebox.showinfo("Schowek", empty_msg, parent=self)
+            return
+        self.clipboard_clear()
+        self.clipboard_append(value)
+        self.update_idletasks()
+
+    def _copy_invoice_name(self) -> None:
+        self._copy_to_clipboard(
+            self.var_name.get(),
+            empty_msg="Brak nazwy / numeru faktury do skopiowania.",
+        )
+
+    def _copy_total_brutto(self) -> None:
+        self._copy_to_clipboard(
+            self.var_total_brutto.get(),
+            empty_msg="Brak kwoty brutto do skopiowania.",
+        )
+
+    def _copy_seller_bank(self) -> None:
+        self._copy_to_clipboard(
+            self.var_seller_bank.get(),
+            empty_msg="Brak numeru konta sprzedawcy do skopiowania.",
+        )
+
     def _load_lookups(self):
         # Organizacje
         org_rows = get_organizations()
@@ -346,6 +460,7 @@ class InvoiceCrud(tk.Toplevel):
         self._de_payment_date.set_date(td)
         self.var_corrected_id.set("")
         self.var_correction_reason.set("")
+        self.var_seller_bank.set("")
         # details form
         self.var_detail_id.set("")
         self.var_service.set("")
@@ -353,6 +468,7 @@ class InvoiceCrud(tk.Toplevel):
         # table
         for i in self.tree_details.get_children():
             self.tree_details.delete(i)
+        self._set_detail_totals(0.0, 0.0, 0.0)
         self._loaded_company_id = None
         self._loaded_customer_id = None
         self._refresh_ksef_panel(None)
@@ -431,21 +547,35 @@ class InvoiceCrud(tk.Toplevel):
             return None
 
     # ---------------------- LOAD / SAVE ---------------------
+    def _set_detail_totals(self, netto: float, vat: float, brutto: float) -> None:
+        if not hasattr(self, "var_total_brutto"):
+            return
+        self.var_total_netto.set(f"{netto:.2f}")
+        self.var_total_vat.set(f"{vat:.2f}")
+        self.var_total_brutto.set(_format_pl_amount(brutto))
+
     def _clear_details_table(self):
         for i in self.tree_details.get_children():
             self.tree_details.delete(i)
+        self._set_detail_totals(0.0, 0.0, 0.0)
 
     def _fill_details_table(self, details_rows):
         """Wypełnia tabelę; oczekuje kolumn jak w get_invoice_full -> details."""
         self._clear_details_table()
         count = 0
+        sum_net = 0.0
+        sum_vat = 0.0
+        sum_brutto = 0.0
         for d in details_rows:
             qty = float(d["Quantity"] or 0)
             price = float(d["UnitPrice"] or 0)
             tax = float(d["TaxValue"] or 0)
             net = price * qty
             vat = round(net * tax / 100.0, 2)
-            brutto = net + vat
+            brutto = round(net + vat, 2)
+            sum_net += net
+            sum_vat += vat
+            sum_brutto += brutto
             self.tree_details.insert(
                 "",
                 "end",
@@ -458,10 +588,18 @@ class InvoiceCrud(tk.Toplevel):
                     f"{tax:.2f}",
                     f"{net:.2f}",
                     f"{vat:.2f}",
-                    f"{brutto:.2f}",
+                    _format_pl_amount(brutto),
                 )
             )
             count += 1
+        self._set_detail_totals(
+            round(sum_net, 2),
+            round(sum_vat, 2),
+            round(sum_brutto, 2),
+        )
+        col = self._details_sort_state.get("col") if hasattr(self, "_details_sort_state") else None
+        if col and hasattr(self, "_sort_details"):
+            self._sort_details(col, toggle=False)
         print(f"[DEBUG] _fill_details_table: inserted {count} rows")
 
     def load_invoice(self, invoice_id: int):
@@ -489,6 +627,7 @@ class InvoiceCrud(tk.Toplevel):
         self.var_payment.set(self._pm_rev.get(header["PaymentMethodId"], ""))
         self.var_status.set(self._status_rev.get(header["StatusId"], ""))
         self.var_type.set(self._type_rev.get(header["TypeId"], ""))
+        self.var_seller_bank.set((header.get("CoBankAccountNbr") or "").strip())
 
         cid = header.get("CorrectedInvoiceId")
         if cid is not None:

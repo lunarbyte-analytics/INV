@@ -257,14 +257,31 @@ def _flow_role_list_display(base_role: str, type_name: str | None) -> str:
     return f"{base_role} korekta"
 
 
+def get_invoice_seller_organizations() -> list[Dict[str, Any]]:
+    """Organizacje występujące jako sprzedawca (CompanyId) na co najmniej jednej fakturze."""
+    with tx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT DISTINCT o.OrganizationId, o.Name
+            FROM Invoice i
+            JOIN Organization o ON o.OrganizationId = i.CompanyId
+            ORDER BY COALESCE(NULLIF(TRIM(o.Name), ''), 'Org ' || o.OrganizationId);
+            """
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
 def get_invoice_list(
     *,
     context_org_id: Optional[int] = None,
     flow_filter: Optional[str] = None,
+    company_id: Optional[int] = None,
 ):
     """
     flow_filter: None / 'all' — wszystkie; 'sales' — tylko sprzedaż (CompanyId = kontekst);
     'purchase' — tylko zakup (CustomerId = kontekst). Wymaga ustawionego context_org_id.
+    company_id — opcjonalny filtr po sprzedawcy (Invoice.CompanyId).
     """
     where_extra: list[str] = []
     params: list[Any] = []
@@ -274,6 +291,9 @@ def get_invoice_list(
     elif flow_filter == "purchase" and context_org_id is not None:
         where_extra.append("i.CustomerId = ?")
         params.append(context_org_id)
+    if company_id is not None:
+        where_extra.append("i.CompanyId = ?")
+        params.append(int(company_id))
 
     where_sql = ""
     if where_extra:
@@ -350,6 +370,7 @@ def get_invoice_full(invoice_id: int):
                    co_addr.City         AS CoCity,
                    co_addr.Country      AS CoCountry,
                    co.OrgNbr1           AS CoNIP,
+                   co.BankAccountNbr    AS CoBankAccountNbr,
 
                    -- adres NABYWCY (AddressId lub AdditionalAddressId wg IsAdditionalAddress)
                    cu_addr.StreetName   AS CuStreet,
