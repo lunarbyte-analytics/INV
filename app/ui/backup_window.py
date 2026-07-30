@@ -122,7 +122,7 @@ class BackupWindow(tk.Toplevel):
 
         ttk.Button(frm, text="Zamknij", command=self.destroy).pack(anchor="e", pady=(PADY, 0))
 
-    def _options(self) -> ExportOptions:
+    def _export_options(self) -> ExportOptions:
         return ExportOptions(
             include_app=self._kind.get() == "app",
             include_settings=self._include_settings.get(),
@@ -131,7 +131,7 @@ class BackupWindow(tk.Toplevel):
         )
 
     def _on_export(self) -> None:
-        opts = self._options()
+        opts = self._export_options()
         initial = default_backup_filename(include_app=opts.include_app)
         path = filedialog.asksaveasfilename(
             parent=self,
@@ -145,7 +145,7 @@ class BackupWindow(tk.Toplevel):
         self._do_export(Path(path), opts)
 
     def _on_export_cloud(self) -> None:
-        opts = self._options()
+        opts = self._export_options()
         clouds = suggested_cloud_folders()
         initial_dir = str(clouds[0]) if clouds else str(Path.home())
         # Preferuj podfolder INV_backup jeśli istnieje lub da się wskazać katalog
