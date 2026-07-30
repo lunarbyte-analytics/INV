@@ -25,6 +25,7 @@ from .organization_crud import OrganizationCrud
 from .calendar_view import CalendarWindow
 from .ksef_connection import KsefConnectionWindow
 from .ksef_purchase_window import KsefPurchaseWindow
+from .backup_window import BackupWindow
 from .settings_window import IntegrationSettingsWindow
 from .treeview_sort import bind_treeview_heading_sort
 
@@ -91,6 +92,10 @@ class MainApp(tk.Tk):
         m_file.add_cascade(label="Środowisko", menu=m_env)
         m_file.add_separator()
         m_file.add_command(label="Ustawienia integracji…", command=self.open_integration_settings)
+        m_file.add_command(
+            label="Kopia zapasowa / chmura…",
+            command=self.open_backup_window,
+        )
         m_file.add_separator()
         m_file.add_command(label="Zakończ", command=self.quit)
         menubar.add_cascade(label="Plik", menu=m_file)
@@ -523,6 +528,14 @@ class MainApp(tk.Tk):
             return
         self._integration_settings_win = IntegrationSettingsWindow(self)
         self._integration_settings_win.focus_set()
+
+    def open_backup_window(self):
+        if getattr(self, "_backup_win", None) is not None and self._backup_win.winfo_exists():
+            self._backup_win.deiconify()
+            self._backup_win.focus_set()
+            return
+        self._backup_win = BackupWindow(self)
+        self._backup_win.focus_set()
 
     def open_ksef_test_window(self):
         if getattr(self, "_ksef_test_win", None) is not None and self._ksef_test_win.winfo_exists():
