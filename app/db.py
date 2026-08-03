@@ -84,6 +84,7 @@ def init_db():
                     ServiceId INTEGER PRIMARY KEY AUTOINCREMENT,
                     UnitId INTEGER NOT NULL,
                     TaxId INTEGER NOT NULL,
+                    OrganizationId INTEGER NULL,
                     Name TEXT,
                     UnitPrice DECIMAL(18,2) NOT NULL,
                     Version TEXT,
@@ -266,6 +267,7 @@ def init_db():
 
         _migrate_record_source_columns(cur)
         _migrate_invoice_correction_columns(cur)
+        _migrate_service_organization_column(cur)
 
 
 def _migrate_invoice_correction_columns(cur) -> None:
@@ -279,6 +281,17 @@ def _migrate_invoice_correction_columns(cur) -> None:
         cur.execute("ALTER TABLE Invoice ADD COLUMN CorrectedInvoiceId INTEGER NULL;")
     if "CorrectionReason" not in cols:
         cur.execute("ALTER TABLE Invoice ADD COLUMN CorrectionReason TEXT NULL;")
+
+
+def _migrate_service_organization_column(cur) -> None:
+    """Opcjonalne powiązanie usługi z organizacją (tylko UI wyboru, nie na fakturze)."""
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Service';")
+    if not cur.fetchone():
+        return
+    cur.execute("PRAGMA table_info(Service)")
+    cols = [r[1] for r in cur.fetchall()]
+    if "OrganizationId" not in cols:
+        cur.execute("ALTER TABLE Service ADD COLUMN OrganizationId INTEGER NULL;")
 
 
 def _migrate_record_source_columns(cur) -> None:

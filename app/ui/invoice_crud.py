@@ -406,11 +406,21 @@ class InvoiceCrud(tk.Toplevel):
         self._type_rev = {v: k for k, v in self._type_map.items()}
         self.cb_type["values"] = list(self._type_map.keys())
 
-        # Usługi
+        # Usługi (etykieta: Nazwa — Organizacja; na fakturze/PDF zostaje samo Name)
         svc_rows = get_services()
-        self._svc_map = {row["Name"]: row["ServiceId"] for row in svc_rows}
+        self._svc_map = {}
+        self._svc_labels = []
+        for row in svc_rows:
+            name = (row["Name"] or f"Service {row['ServiceId']}").strip()
+            org = ""
+            if "OrgName" in row.keys() and row["OrgName"]:
+                org = str(row["OrgName"]).strip()
+            label = f"{name} — {org}" if org else name
+            if label in self._svc_map:
+                label = f"{label} [#{row['ServiceId']}]"
+            self._svc_map[label] = row["ServiceId"]
+            self._svc_labels.append(label)
         self._svc_rev = {v: k for k, v in self._svc_map.items()}
-        self._svc_labels = list(self._svc_map.keys())
         self.cb_service["values"] = self._svc_labels
 
         print(f"[DEBUG] lookups: org={len(self._org_map)}, pm={len(self._pm_map)}, st={len(self._status_map)}, tp={len(self._type_map)}, svc={len(self._svc_map)}")
@@ -589,7 +599,8 @@ class InvoiceCrud(tk.Toplevel):
                     f"{net:.2f}",
                     f"{vat:.2f}",
                     _format_pl_amount(brutto),
-                )
+                ),
+                tags=(f"svc:{int(d['ServiceId'])}",),
             )
             count += 1
         self._set_detail_totals(
@@ -784,10 +795,20 @@ class InvoiceCrud(tk.Toplevel):
         sel = self.tree_details.selection()
         if not sel:
             return
-        vals = self.tree_details.item(sel[0], "values")
+        item = sel[0]
+        vals = self.tree_details.item(item, "values")
         # kolumny: 0=DetailId, 1=ServiceName, 2=UnitCode, 3=Quantity, ...
         self.var_detail_id.set(vals[0] or "")
-        self.cb_service.set(vals[1] or "")
+        label = vals[1] or ""
+        for tag in self.tree_details.item(item, "tags") or ():
+            if isinstance(tag, str) and tag.startswith("svc:"):
+                try:
+                    sid = int(tag.split(":", 1)[1])
+                except ValueError:
+                    break
+                label = self._svc_rev.get(sid, label)
+                break
+        self.cb_service.set(label)
         self.var_quantity.set(vals[3] or "")
 
     def _require_invoice_id(self) -> Optional[int]:

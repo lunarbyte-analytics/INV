@@ -49,10 +49,12 @@ def get_services():
     with tx() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT s.ServiceId, s.Name, s.UnitPrice, u.Code AS UnitCode, t.Value AS TaxValue
+            SELECT s.ServiceId, s.Name, s.UnitPrice, u.Code AS UnitCode, t.Value AS TaxValue,
+                   s.OrganizationId, o.Name AS OrgName
             FROM Service s
             JOIN Unit u ON u.UnitId = s.UnitId
             JOIN Tax  t ON t.TaxId  = s.TaxId
+            LEFT JOIN Organization o ON o.OrganizationId = s.OrganizationId
             ORDER BY s.ServiceId;
         """)
         return cur.fetchall()

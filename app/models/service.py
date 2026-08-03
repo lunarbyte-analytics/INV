@@ -3,6 +3,8 @@ import sqlite3
 from ..db import tx
 from .record_source import RECORD_SOURCE_USER
 
+_UNSET = object()
+
 
 def create_service(
     unit_id: int,
@@ -11,13 +13,17 @@ def create_service(
     unit_price: float,
     version: Optional[str] = None,
     *,
+    organization_id: Optional[int] = None,
     record_source: str = RECORD_SOURCE_USER,
 ) -> int:
     with tx() as conn:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO Service (UnitId, TaxId, Name, UnitPrice, Version, RecordSource) VALUES (?, ?, ?, ?, ?, ?);",
-            (unit_id, tax_id, name, float(unit_price), version, record_source),
+            """
+            INSERT INTO Service (UnitId, TaxId, OrganizationId, Name, UnitPrice, Version, RecordSource)
+            VALUES (?, ?, ?, ?, ?, ?, ?);
+            """,
+            (unit_id, tax_id, organization_id, name, float(unit_price), version, record_source),
         )
         return cur.lastrowid
 
@@ -25,15 +31,16 @@ def create_service(
 def get_service_all():
     with tx() as conn:
         cur = conn.cursor()
-        # join for readable names
         cur.execute(
             """
             SELECT s.ServiceId, s.Name, s.UnitPrice, s.Version, s.RecordSource,
+                   s.OrganizationId, o.Name AS OrgName,
                    u.UnitId, u.Code as UnitCode, u.Name as UnitName,
                    t.TaxId, t.Name as TaxName, t.Value as TaxValue
             FROM Service s
             JOIN Unit u ON u.UnitId = s.UnitId
             JOIN Tax  t ON t.TaxId  = s.TaxId
+            LEFT JOIN Organization o ON o.OrganizationId = s.OrganizationId
             ORDER BY s.ServiceId;
             """
         )
@@ -46,11 +53,13 @@ def get_service_by_id(service_id: int) -> Optional[sqlite3.Row]:
         cur.execute(
             """
             SELECT s.ServiceId, s.Name, s.UnitPrice, s.Version, s.RecordSource,
+                   s.OrganizationId, o.Name AS OrgName,
                    u.UnitId, u.Code as UnitCode, u.Name as UnitName,
                    t.TaxId, t.Name as TaxName, t.Value as TaxValue
             FROM Service s
             JOIN Unit u ON u.UnitId = s.UnitId
             JOIN Tax  t ON t.TaxId  = s.TaxId
+            LEFT JOIN Organization o ON o.OrganizationId = s.OrganizationId
             WHERE s.ServiceId = ?;
             """,
             (service_id,),
@@ -58,18 +67,35 @@ def get_service_by_id(service_id: int) -> Optional[sqlite3.Row]:
         return cur.fetchone()
 
 
-def update_service(service_id: int, *, unit_id: Optional[int] = None, tax_id: Optional[int] = None, name: Optional[str] = None, unit_price: Optional[float] = None, version: Optional[str] = None) -> bool:
+def update_service(
+    service_id: int,
+    *,
+    unit_id: Optional[int] = None,
+    tax_id: Optional[int] = None,
+    name: Optional[str] = None,
+    unit_price: Optional[float] = None,
+    version: Optional[str] = None,
+    organization_id=_UNSET,
+) -> bool:
     sets, params = [], []
     if unit_id is not None:
-        sets.append("UnitId = ?"); params.append(unit_id)
+        sets.append("UnitId = ?")
+        params.append(unit_id)
     if tax_id is not None:
-        sets.append("TaxId = ?"); params.append(tax_id)
+        sets.append("TaxId = ?")
+        params.append(tax_id)
     if name is not None:
-        sets.append("Name = ?"); params.append(name)
+        sets.append("Name = ?")
+        params.append(name)
     if unit_price is not None:
-        sets.append("UnitPrice = ?"); params.append(float(unit_price))
+        sets.append("UnitPrice = ?")
+        params.append(float(unit_price))
     if version is not None:
-        sets.append("Version = ?"); params.append(version)
+        sets.append("Version = ?")
+        params.append(version)
+    if organization_id is not _UNSET:
+        sets.append("OrganizationId = ?")
+        params.append(organization_id)
     if not sets:
         return False
     params.append(service_id)

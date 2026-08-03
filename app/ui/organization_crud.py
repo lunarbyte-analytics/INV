@@ -9,7 +9,6 @@ from ..ceidg.hd_client import (
     fetch_firma_by_nip,
     flat_firma_for_org,
     get_ceidg_hd_token,
-    merge_pref,
     normalize_nip_digits,
 )
 from ..gus.bir_client import (
@@ -34,7 +33,6 @@ from ..models import (
 from ..models.record_source import (
     RECORD_SOURCE_CEIDG_IMPORT,
     RECORD_SOURCE_GUS_IMPORT,
-    RECORD_SOURCE_USER,
     record_source_label_pl,
 )
 
@@ -606,15 +604,14 @@ class OrganizationCrud(tk.Toplevel):
         threading.Thread(target=work, daemon=True).start()
 
     def _apply_registry_import(self, flat: dict, source: str = RECORD_SOURCE_CEIDG_IMPORT):
-        """Uzupełnia puste pola formularza i — jeśli jest zapisany rekord — puste pola w bazie."""
+        """Nadpisuje pola formularza (i zapisanej organizacji) danymi z CEIDG/GUS."""
         src_label = "GUS (REGON)" if source == RECORD_SOURCE_GUS_IMPORT else "Hurtowni CEIDG"
-        snap = self._snapshot_org_form_for_ceidg()
         self._merge_ceidg_into_form(flat)
         vid = (self.var_id.get() or "").strip()
         if not vid:
             messagebox.showinfo(
                 "Import",
-                f"Uzupełniono brakujące pola z {src_label}. "
+                f"Nadpisano pola formularza danymi z {src_label}. "
                 "Kliknij „Dodaj”, aby zapisać nową organizację.",
                 parent=self,
             )
@@ -624,7 +621,7 @@ class OrganizationCrud(tk.Toplevel):
         except ValueError:
             return
 
-        did_db = self._merge_ceidg_into_db(oid, flat, snap, source=source)
+        did_db = self._merge_ceidg_into_db(oid, flat, source=source)
         log = gus_debug if source == RECORD_SOURCE_GUS_IMPORT else ceidg_debug
         log(f"zapis do bazy po imporcie: OrganizationId={oid}, wykonano UPDATE={'tak' if did_db else 'nie'}")
         self._load_lookups()
@@ -641,72 +638,49 @@ class OrganizationCrud(tk.Toplevel):
         if did_db:
             messagebox.showinfo(
                 "Import",
-                f"Uzupełniono brakujące dane z {src_label} (zapis w bazie).",
+                f"Zaktualizowano organizację danymi z {src_label} (nadpisano pola w bazie).",
                 parent=self,
             )
         else:
             messagebox.showinfo(
                 "Import",
-                "W bazie nie było pustych pól do uzupełnienia. "
-                "Formularz uzupełniono tylko tam, gdzie pola były puste.",
+                f"Formularz nadpisano danymi z {src_label}. "
+                "W bazie nie było zmian (dane już były aktualne).",
                 parent=self,
             )
 
-    def _snapshot_org_form_for_ceidg(self) -> dict[str, str]:
-        """Stan pól przed importem — jeśli pole było puste (np. użytkownik wyczyścił nazwę), CEIDG nadpisuje też starą wartość w bazie."""
-        return {
-            "name": (self.var_name.get() or "").strip(),
-            "phone": (self.var_phone.get() or "").strip(),
-            "email": (self.var_email.get() or "").strip(),
-            "org_nip": (self.var_org1.get() or "").strip(),
-            "org_regon": (self.var_org2.get() or "").strip(),
-        }
-
     @staticmethod
-    def _merge_ceidg_org_field(
-        db_val: str | None,
-        snap_form: str | None,
-        incoming: str | None,
-    ) -> str | None:
-        """
-        Pola organizacji: jeśli przed importem formularz był pusty, przyjmij wartość z CEIDG
-        (nadpisuje starą treść w bazie). Jeśli użytkownik miał wpis — tylko uzupełnianie pustych w DB (merge_pref).
-        """
-        inc = (incoming or "").strip() if incoming is not None else ""
-        if not inc:
+    def _overwrite_value(current: str | None, incoming: str | None) -> str | None:
+        """Nowa wartość do zapisu, albo None gdy bez zmian. Puste z rejestru czyści pole."""
+        inc = "" if incoming is None else str(incoming).strip()
+        cur = "" if current is None else str(current).strip()
+        if inc == cur:
             return None
-        snap = (snap_form or "").strip()
-        if not snap:
-            db = (db_val or "").strip()
-            return inc if inc != db else None
-        return merge_pref(db_val, incoming)
+        return inc
 
     def _merge_ceidg_into_form(self, flat: dict):
-        def set_if_empty(var: tk.StringVar, val: str | None):
-            m = merge_pref(var.get(), val)
-            if m is not None:
-                var.set(m)
+        def set_overwrite(var: tk.StringVar, val: str | None):
+            var.set("" if val is None else str(val).strip())
 
-        set_if_empty(self.var_name, flat.get("name"))
-        set_if_empty(self.var_phone, flat.get("phone"))
-        set_if_empty(self.var_email, flat.get("email"))
-        set_if_empty(self.var_org1, flat.get("org_nip"))
-        set_if_empty(self.var_org2, flat.get("org_regon"))
-        set_if_empty(self.var_street, flat.get("street_name"))
-        set_if_empty(self.var_street_no, flat.get("street_number"))
-        set_if_empty(self.var_zip, flat.get("zip_code"))
-        set_if_empty(self.var_city, flat.get("city"))
-        set_if_empty(self.var_country, flat.get("country"))
+        set_overwrite(self.var_name, flat.get("name"))
+        set_overwrite(self.var_phone, flat.get("phone"))
+        set_overwrite(self.var_email, flat.get("email"))
+        set_overwrite(self.var_org1, flat.get("org_nip"))
+        set_overwrite(self.var_org2, flat.get("org_regon"))
+        set_overwrite(self.var_street, flat.get("street_name"))
+        set_overwrite(self.var_street_no, flat.get("street_number"))
+        set_overwrite(self.var_zip, flat.get("zip_code"))
+        set_overwrite(self.var_city, flat.get("city"))
+        set_overwrite(self.var_country, flat.get("country"))
 
     def _merge_ceidg_into_db(
         self,
         org_id: int,
         flat: dict,
-        snap: dict[str, str],
         *,
         source: str = RECORD_SOURCE_CEIDG_IMPORT,
     ) -> bool:
-        """Zwraca True, jeśli wykonano UPDATE w bazie."""
+        """Nadpisuje w bazie wszystkie pola mapowane z rejestru. Zwraca True przy UPDATE."""
         org = get_organization_by_id(org_id)
         if not org:
             return False
@@ -719,12 +693,9 @@ class OrganizationCrud(tk.Toplevel):
             ("OrgNbr1", "org_nip"),
             ("OrgNbr2", "org_regon"),
         ):
-            m = self._merge_ceidg_org_field(org[col], snap.get(key), flat.get(key))
+            m = self._overwrite_value(org[col], flat.get(key))
             if m is not None:
                 org_updates[col] = m
-
-        rs = org["RecordSource"] if "RecordSource" in org.keys() else None
-        should_tag = rs in (None, "", RECORD_SOURCE_USER)
 
         addr_id = org["AddressId"]
         addr = get_address_by_id(addr_id) if addr_id else None
@@ -737,11 +708,11 @@ class OrganizationCrud(tk.Toplevel):
                 ("City", "city", "city"),
                 ("Country", "country", "country"),
             ):
-                m = merge_pref(addr[sql_col], flat.get(flat_key))
+                m = self._overwrite_value(addr[sql_col], flat.get(flat_key))
                 if m is not None:
                     addr_updates[ukw] = m
 
-        if should_tag and (org_updates or addr_updates):
+        if org_updates or addr_updates:
             org_updates["RecordSource"] = source
 
         did = False
