@@ -1,4 +1,4 @@
-"""Okno ustawień integracji: KSeF, CEIDG — zapis w inv_app_settings.json."""
+"""Okno ustawień integracji: KSeF, CEIDG, GUS — zapis w inv_app_settings.json."""
 from __future__ import annotations
 
 import tkinter as tk
@@ -7,6 +7,8 @@ from tkinter import messagebox, ttk
 from ..app_env import (
     AppEnvironment,
     DEFAULT_CEIDG_HD_API_BASE,
+    DEFAULT_GUS_BIR_API_BASE,
+    DEFAULT_GUS_BIR_API_BASE_TEST,
     DEFAULT_KSEF_PRODUCTION_BASE_URL,
     DEFAULT_KSEF_TEST_BASE_URL,
     get_environment,
@@ -21,9 +23,9 @@ PADY = 8
 class IntegrationSettingsWindow(tk.Toplevel):
     def __init__(self, master=None):
         super().__init__(master)
-        self.title("Ustawienia integracji (KSeF, CEIDG)")
-        self.geometry("760x720")
-        self.minsize(560, 520)
+        self.title("Ustawienia integracji (KSeF, CEIDG, GUS)")
+        self.geometry("760x860")
+        self.minsize(560, 560)
         self.transient(master)
         self._vars: dict[AppEnvironment, dict[str, tk.Variable]] = {
             AppEnvironment.TEST: self._make_var_bundle(),
@@ -42,6 +44,9 @@ class IntegrationSettingsWindow(tk.Toplevel):
             "ceidg_hd_api_token": tk.StringVar(),
             "ceidg_hd_api_base": tk.StringVar(),
             "ceidg_debug": tk.BooleanVar(value=False),
+            "gus_bir_api_key": tk.StringVar(),
+            "gus_bir_api_base": tk.StringVar(),
+            "gus_debug": tk.BooleanVar(value=False),
         }
 
     def _build(self) -> None:
@@ -84,8 +89,8 @@ class IntegrationSettingsWindow(tk.Toplevel):
         ttk.Label(
             frm,
             text=(
-                "CEIDG: zmienne CEIDG_HD_API_TOKEN itd. mają pierwszeństwo nad pustym polem w pliku. "
-                "KSeF: patrz opis powyżej (plik pierwszy, gdy niepusty)."
+                "CEIDG / GUS: zmienne CEIDG_HD_API_TOKEN, GUS_BIR_API_KEY itd. mają pierwszeństwo "
+                "nad pustym polem w pliku. KSeF: patrz opis powyżej (plik pierwszy, gdy niepusty)."
             ),
             wraplength=700,
             font=("Segoe UI", 9),
@@ -99,6 +104,7 @@ class IntegrationSettingsWindow(tk.Toplevel):
             AppEnvironment.TEST,
             "Środowisko testowe — baza: sqllite3_inv_test.db",
             DEFAULT_KSEF_TEST_BASE_URL,
+            DEFAULT_GUS_BIR_API_BASE_TEST,
         )
         row = self._build_env_column(
             frm,
@@ -106,6 +112,7 @@ class IntegrationSettingsWindow(tk.Toplevel):
             AppEnvironment.PRODUCTION,
             "Środowisko produkcyjne — baza: sqllite3_inv.db",
             DEFAULT_KSEF_PRODUCTION_BASE_URL,
+            DEFAULT_GUS_BIR_API_BASE,
         )
 
         btn_row = ttk.Frame(frm)
@@ -120,6 +127,7 @@ class IntegrationSettingsWindow(tk.Toplevel):
         env: AppEnvironment,
         title: str,
         ksef_default_url: str,
+        gus_default_url: str,
     ) -> int:
         block = ttk.LabelFrame(parent, text=title)
         block.grid(row=row, column=0, sticky="ew", padx=PADX, pady=(0, 12))
@@ -186,6 +194,44 @@ class IntegrationSettingsWindow(tk.Toplevel):
             variable=v["ceidg_debug"],
         ).grid(row=r, column=0, columnspan=2, sticky="w", padx=PADX, pady=PADY)
 
+        gu = ttk.LabelFrame(block, text="GUS BIR (REGON) — fallback przy braku w CEIDG")
+        gu.grid(row=2, column=0, sticky="ew", padx=PADX, pady=PADY)
+        gu.columnconfigure(1, weight=1)
+        r = 0
+        ttk.Label(gu, text="Klucz API (GUS_BIR_API_KEY):").grid(
+            row=r, column=0, sticky="n", padx=PADX, pady=PADY
+        )
+        ttk.Entry(gu, textvariable=v["gus_bir_api_key"], width=64, show="•").grid(
+            row=r, column=1, sticky="ew", padx=PADX, pady=PADY
+        )
+        r += 1
+        ttk.Label(
+            gu,
+            text="Wniosek o klucz: https://api.stat.gov.pl/Home/RegonApi — test: abcde12345abcde12345",
+            font=("Segoe UI", 8),
+            foreground="#666",
+        ).grid(row=r, column=1, sticky="w", padx=PADX, pady=(0, 4))
+        r += 1
+        ttk.Label(gu, text="URL usługi SOAP (GUS_BIR_API_BASE):").grid(
+            row=r, column=0, sticky="ne", padx=PADX, pady=PADY
+        )
+        ttk.Entry(gu, textvariable=v["gus_bir_api_base"], width=64).grid(
+            row=r, column=1, sticky="ew", padx=PADX, pady=PADY
+        )
+        r += 1
+        ttk.Label(
+            gu,
+            text=f"Domyślnie (gdy pusto): {gus_default_url}",
+            font=("Segoe UI", 8),
+            foreground="#666",
+        ).grid(row=r, column=1, sticky="w", padx=PADX, pady=(0, 4))
+        r += 1
+        ttk.Checkbutton(
+            gu,
+            text="Logi diagnostyczne GUS (GUS_DEBUG) — komunikaty [GUS] na konsoli",
+            variable=v["gus_debug"],
+        ).grid(row=r, column=0, columnspan=2, sticky="w", padx=PADX, pady=PADY)
+
         return row + 1
 
     def _gather(self, env: AppEnvironment) -> dict:
@@ -198,6 +244,9 @@ class IntegrationSettingsWindow(tk.Toplevel):
             "ceidg_hd_api_token": v["ceidg_hd_api_token"].get(),
             "ceidg_hd_api_base": v["ceidg_hd_api_base"].get(),
             "ceidg_debug": v["ceidg_debug"].get(),
+            "gus_bir_api_key": v["gus_bir_api_key"].get(),
+            "gus_bir_api_base": v["gus_bir_api_base"].get(),
+            "gus_debug": v["gus_debug"].get(),
         }
 
     def _load(self) -> None:
@@ -211,6 +260,9 @@ class IntegrationSettingsWindow(tk.Toplevel):
             v["ceidg_hd_api_token"].set(d.get("ceidg_hd_api_token") or "")
             v["ceidg_hd_api_base"].set(d.get("ceidg_hd_api_base") or "")
             v["ceidg_debug"].set(bool(d.get("ceidg_debug")))
+            v["gus_bir_api_key"].set(d.get("gus_bir_api_key") or "")
+            v["gus_bir_api_base"].set(d.get("gus_bir_api_base") or "")
+            v["gus_debug"].set(bool(d.get("gus_debug")))
 
     def _on_save(self) -> None:
         save_integration_both(

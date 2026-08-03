@@ -9,7 +9,10 @@
       "ksef_debug": false,
       "ceidg_hd_api_token": "",
       "ceidg_hd_api_base": "https://dane.biznes.gov.pl/api/ceidg/v3",
-      "ceidg_debug": false
+      "ceidg_debug": false,
+      "gus_bir_api_key": "",
+      "gus_bir_api_base": "https://wyszukiwarkaregon.stat.gov.pl/wsBIR/UslugaBIRzewnPubl.svc",
+      "gus_debug": false
     },
     "test": {
       "ksef_token": "",
@@ -18,7 +21,10 @@
       "ksef_debug": false,
       "ceidg_hd_api_token": "",
       "ceidg_hd_api_base": "https://dane.biznes.gov.pl/api/ceidg/v3",
-      "ceidg_debug": false
+      "ceidg_debug": false,
+      "gus_bir_api_key": "",
+      "gus_bir_api_base": "https://wyszukiwarkaregontest.stat.gov.pl/wsBIR/UslugaBIRzewnPubl.svc",
+      "gus_debug": false
     }
   }
 }

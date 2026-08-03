@@ -12,7 +12,16 @@ from ..ceidg.hd_client import (
     merge_pref,
     normalize_nip_digits,
 )
+from ..gus.bir_client import (
+    GusBirError,
+    GusNoDataError,
+    fetch_podmiot_by_nip,
+    flat_podmiot_for_org,
+    get_gus_bir_key,
+)
+from ..gus.debug_log import gus_debug
 from ..models import (
+    create_address,
     create_organization,
     delete_organization,
     get_address_all,
@@ -22,7 +31,12 @@ from ..models import (
     update_address,
     update_organization,
 )
-from ..models.record_source import RECORD_SOURCE_CEIDG_IMPORT, RECORD_SOURCE_USER, record_source_label_pl
+from ..models.record_source import (
+    RECORD_SOURCE_CEIDG_IMPORT,
+    RECORD_SOURCE_GUS_IMPORT,
+    RECORD_SOURCE_USER,
+    record_source_label_pl,
+)
 
 PADX = 8
 PADY = 6
@@ -31,8 +45,9 @@ class OrganizationCrud(tk.Toplevel):
     def __init__(self, master=None):
         super().__init__(master)
         self.title("Organizacje – CRUD (SQLite)")
-        self.geometry("1200x660")
+        self.geometry("1200x760")
         self.resizable(True, True)
+        self._editing_addr_id: int | None = None
         self._build_widgets()
         self._load_lookups()
         self.refresh_table()
@@ -67,23 +82,17 @@ class OrganizationCrud(tk.Toplevel):
         ttk.Entry(frm, textvariable=self.var_phone)\
             .grid(row=0, column=5, sticky="ew", padx=PADX, pady=PADY)
 
-        # Address
-        ttk.Label(frm, text="Adres:").grid(row=1, column=0, sticky=tk.E, padx=PADX, pady=PADY)
-        self.var_addr = tk.StringVar()
-        self.cb_addr = ttk.Combobox(frm, textvariable=self.var_addr, state="readonly")
-        self.cb_addr.grid(row=1, column=1, sticky="ew", padx=PADX, pady=PADY)
+        # Email
+        ttk.Label(frm, text="Email:").grid(row=1, column=0, sticky=tk.E, padx=PADX, pady=PADY)
+        self.var_email = tk.StringVar()
+        ttk.Entry(frm, textvariable=self.var_email)\
+            .grid(row=1, column=1, sticky="ew", padx=PADX, pady=PADY)
 
-        # Additional Address
+        # Additional Address (opcjonalnie z listy)
         ttk.Label(frm, text="Adres dodatkowy:").grid(row=1, column=2, sticky=tk.E, padx=PADX, pady=PADY)
         self.var_add_addr = tk.StringVar()
         self.cb_add_addr = ttk.Combobox(frm, textvariable=self.var_add_addr, state="readonly")
         self.cb_add_addr.grid(row=1, column=3, sticky="ew", padx=PADX, pady=PADY)
-
-        # Email
-        ttk.Label(frm, text="Email:").grid(row=1, column=4, sticky=tk.E, padx=PADX, pady=PADY)
-        self.var_email = tk.StringVar()
-        ttk.Entry(frm, textvariable=self.var_email)\
-            .grid(row=1, column=5, sticky="ew", padx=PADX, pady=PADY)
 
         # NIP / REGON / PESEL
         ttk.Label(frm, text="NIP:").grid(row=2, column=0, sticky=tk.E, padx=PADX, pady=PADY)
@@ -94,7 +103,7 @@ class OrganizationCrud(tk.Toplevel):
         ttk.Entry(nip_row, textvariable=self.var_org1).grid(row=0, column=0, sticky="ew")
         ttk.Button(
             nip_row,
-            text="Import z CEIDG (API HD)",
+            text="Import CEIDG / GUS",
             command=self.on_import_ceidg,
         ).grid(row=0, column=1, padx=(8, 0))
 
@@ -114,12 +123,64 @@ class OrganizationCrud(tk.Toplevel):
         ttk.Entry(frm, textvariable=self.var_bank)\
             .grid(row=3, column=1, columnspan=5, sticky="ew", padx=PADX, pady=PADY)
 
+        # --- Adres główny (wpisywany w tym oknie) ---
+        addr_frm = ttk.LabelFrame(frm, text="Adres główny")
+        addr_frm.grid(row=4, column=0, columnspan=6, sticky="ew", padx=PADX, pady=(PADY, 2))
+        for c in range(6):
+            addr_frm.grid_columnconfigure(c, weight=0)
+        addr_frm.grid_columnconfigure(1, weight=1)
+        addr_frm.grid_columnconfigure(3, weight=1)
+        addr_frm.grid_columnconfigure(5, weight=1)
+
+        ttk.Label(addr_frm, text="Załaduj z listy:").grid(
+            row=0, column=0, sticky=tk.E, padx=PADX, pady=PADY
+        )
+        self.var_addr_pick = tk.StringVar()
+        self.cb_addr_pick = ttk.Combobox(
+            addr_frm, textvariable=self.var_addr_pick, state="readonly"
+        )
+        self.cb_addr_pick.grid(row=0, column=1, columnspan=3, sticky="ew", padx=PADX, pady=PADY)
+        self.cb_addr_pick.bind("<<ComboboxSelected>>", self._on_pick_existing_address)
+        ttk.Button(
+            addr_frm,
+            text="Wyczyść adres",
+            command=self._clear_address_fields,
+        ).grid(row=0, column=4, columnspan=2, sticky="w", padx=PADX, pady=PADY)
+
+        ttk.Label(addr_frm, text="Ulica:").grid(row=1, column=0, sticky=tk.E, padx=PADX, pady=PADY)
+        self.var_street = tk.StringVar()
+        ttk.Entry(addr_frm, textvariable=self.var_street)\
+            .grid(row=1, column=1, sticky="ew", padx=PADX, pady=PADY)
+
+        ttk.Label(addr_frm, text="Nr:").grid(row=1, column=2, sticky=tk.E, padx=PADX, pady=PADY)
+        self.var_street_no = tk.StringVar()
+        ttk.Entry(addr_frm, textvariable=self.var_street_no, width=12)\
+            .grid(row=1, column=3, sticky="w", padx=PADX, pady=PADY)
+
+        ttk.Label(addr_frm, text="Kod pocztowy:").grid(
+            row=1, column=4, sticky=tk.E, padx=PADX, pady=PADY
+        )
+        self.var_zip = tk.StringVar()
+        ttk.Entry(addr_frm, textvariable=self.var_zip, width=12)\
+            .grid(row=1, column=5, sticky="w", padx=PADX, pady=PADY)
+
+        ttk.Label(addr_frm, text="Miasto:").grid(row=2, column=0, sticky=tk.E, padx=PADX, pady=PADY)
+        self.var_city = tk.StringVar()
+        ttk.Entry(addr_frm, textvariable=self.var_city)\
+            .grid(row=2, column=1, sticky="ew", padx=PADX, pady=PADY)
+
+        ttk.Label(addr_frm, text="Kraj:").grid(row=2, column=2, sticky=tk.E, padx=PADX, pady=PADY)
+        self.var_country = tk.StringVar(value="Polska")
+        ttk.Entry(addr_frm, textvariable=self.var_country)\
+            .grid(row=2, column=3, sticky="ew", padx=PADX, pady=PADY)
+
         # --- BUTTONS ---
         btns = ttk.Frame(self)
         btns.pack(fill=tk.X, padx=10, pady=(0, 10))
         ttk.Button(btns, text="Dodaj", command=self.on_add).pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="Aktualizuj", command=self.on_update).pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="Usuń", command=self.on_delete).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btns, text="Wyczyść formularz", command=self.clear_form).pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="Odśwież", command=self.refresh_table).pack(side=tk.RIGHT, padx=5)
 
         # --- TABLE ---
@@ -192,9 +253,75 @@ class OrganizationCrud(tk.Toplevel):
         self._addr_by_label = {_lbl(a): a["AddressId"] for a in addresses}
         self._label_by_addr = {v: k for k, v in self._addr_by_label.items()}
 
-        vals = list(self._addr_by_label.keys())
-        self.cb_addr["values"] = vals
-        self.cb_add_addr["values"] = [""] + vals
+        vals = [""] + list(self._addr_by_label.keys())
+        self.cb_addr_pick["values"] = vals
+        self.cb_add_addr["values"] = vals
+
+    def _clear_address_fields(self):
+        self.var_addr_pick.set("")
+        self.var_street.set("")
+        self.var_street_no.set("")
+        self.var_zip.set("")
+        self.var_city.set("")
+        self.var_country.set("Polska")
+        # przy edycji istniejącej org nie gubimy AddressId — aktualizacja nadpisze pola
+        if not (self.var_id.get() or "").strip():
+            self._editing_addr_id = None
+
+    def _fill_address_fields_from_row(self, addr) -> None:
+        if not addr:
+            self._clear_address_fields()
+            self._editing_addr_id = None
+            return
+        self._editing_addr_id = int(addr["AddressId"])
+        self.var_street.set(addr["StreetName"] or "")
+        self.var_street_no.set(addr["StreetNumber"] or "")
+        self.var_zip.set(addr["ZipCode"] or "")
+        self.var_city.set(addr["City"] or "")
+        self.var_country.set(addr["Country"] or "Polska")
+        self.var_addr_pick.set(self._label_by_addr.get(self._editing_addr_id, ""))
+
+    def _on_pick_existing_address(self, _event=None):
+        label = (self.var_addr_pick.get() or "").strip()
+        if not label:
+            return
+        addr_id = self._addr_by_label.get(label)
+        if not addr_id:
+            return
+        addr = get_address_by_id(addr_id)
+        self._fill_address_fields_from_row(addr)
+
+    def _read_address_from_form(self) -> tuple[str, str, str, str, str]:
+        street = (self.var_street.get() or "").strip()
+        street_no = (self.var_street_no.get() or "").strip()
+        zip_code = (self.var_zip.get() or "").strip()
+        city = (self.var_city.get() or "").strip()
+        country = (self.var_country.get() or "").strip() or "Polska"
+        return street, street_no, zip_code, city, country
+
+    def _validate_address_form(self) -> bool:
+        _, _, _, city, country = self._read_address_from_form()
+        if not city:
+            messagebox.showwarning("Walidacja", "Miasto (adres) nie może być puste.", parent=self)
+            return False
+        if not country:
+            messagebox.showwarning("Walidacja", "Kraj (adres) nie może być pusty.", parent=self)
+            return False
+        return True
+
+    def clear_form(self):
+        self.var_id.set("")
+        self.var_name.set("")
+        self.var_phone.set("")
+        self.var_email.set("")
+        self.var_org1.set("")
+        self.var_org2.set("")
+        self.var_org3.set("")
+        self.var_bank.set("")
+        self.var_add_addr.set("")
+        self._editing_addr_id = None
+        self._clear_address_fields()
+        self.tree.selection_remove(self.tree.selection())
 
     def refresh_table(self):
         def _g(row, key, default=None):
@@ -231,11 +358,36 @@ class OrganizationCrud(tk.Toplevel):
 
     # ------------------- ACTIONS -------------------
     def on_add(self):
+        if not self._validate_address_form():
+            return
         try:
-            addr = self._addr_by_label[self.var_addr.get()]
-            add_addr = self._addr_by_label.get(self.var_add_addr.get())
+            street, street_no, zip_code, city, country = self._read_address_from_form()
+            # Nowa org: zawsze nowy rekord Address z pól formularza
+            # (opcjonalnie: jeśli wybrano z listy i nic nie zmieniono — reuse)
+            pick_label = (self.var_addr_pick.get() or "").strip()
+            reuse_id = self._addr_by_label.get(pick_label) if pick_label else None
+            if reuse_id:
+                existing = get_address_by_id(reuse_id)
+                same = (
+                    existing
+                    and (existing["StreetName"] or "") == street
+                    and (existing["StreetNumber"] or "") == street_no
+                    and (existing["ZipCode"] or "") == zip_code
+                    and (existing["City"] or "") == city
+                    and (existing["Country"] or "") == country
+                )
+                addr_id = reuse_id if same else create_address(
+                    "Billing", street, street_no, zip_code, city, country
+                )
+            else:
+                addr_id = create_address(
+                    "Billing", street, street_no, zip_code, city, country
+                )
+
+            add_addr = self._addr_by_label.get((self.var_add_addr.get() or "").strip())
             new_id = create_organization(
-                addr, add_addr,
+                addr_id,
+                add_addr,
                 self.var_name.get().strip() or None,
                 self.var_phone.get().strip() or None,
                 self.var_email.get().strip() or None,
@@ -244,22 +396,48 @@ class OrganizationCrud(tk.Toplevel):
                 self.var_org3.get().strip() or None,
                 self.var_bank.get().strip() or None,
             )
+            self._load_lookups()
             self.refresh_table()
-            messagebox.showinfo("Sukces", f"Dodano organizację (ID={new_id}).")
+            self.clear_form()
+            messagebox.showinfo("Sukces", f"Dodano organizację (ID={new_id}).", parent=self)
         except Exception as e:
-            messagebox.showerror("Błąd", str(e))
+            messagebox.showerror("Błąd", str(e), parent=self)
 
     def on_update(self):
         if not self.var_id.get():
-            messagebox.showwarning("Błąd", "Nie wybrano organizacji.")
+            messagebox.showwarning("Błąd", "Nie wybrano organizacji.", parent=self)
+            return
+        if not self._validate_address_form():
             return
         try:
             org_id = int(self.var_id.get())
-            addr = self._addr_by_label[self.var_addr.get()]
-            add_addr = self._addr_by_label.get(self.var_add_addr.get())
+            street, street_no, zip_code, city, country = self._read_address_from_form()
+            add_addr = self._addr_by_label.get((self.var_add_addr.get() or "").strip())
+
+            org = get_organization_by_id(org_id)
+            addr_id = None
+            if org and org["AddressId"]:
+                addr_id = int(org["AddressId"])
+            elif self._editing_addr_id:
+                addr_id = self._editing_addr_id
+
+            if addr_id:
+                update_address(
+                    addr_id,
+                    street_name=street,
+                    street_number=street_no,
+                    zip_code=zip_code,
+                    city=city,
+                    country=country,
+                )
+            else:
+                addr_id = create_address(
+                    "Billing", street, street_no, zip_code, city, country
+                )
+
             ok = update_organization(
                 org_id,
-                AddressId=addr,
+                AddressId=addr_id,
                 AdditionalAddressId=add_addr,
                 Name=self.var_name.get().strip() or None,
                 Phone=self.var_phone.get().strip() or None,
@@ -270,11 +448,12 @@ class OrganizationCrud(tk.Toplevel):
                 BankAccountNbr=self.var_bank.get().strip() or None,
             )
             if ok:
+                self._editing_addr_id = addr_id
+                self._load_lookups()
                 self.refresh_table()
-                messagebox.showinfo("Sukces", "Zaktualizowano dane organizacji.")
+                messagebox.showinfo("Sukces", "Zaktualizowano dane organizacji.", parent=self)
         except Exception as e:
-            messagebox.showerror("Błąd", str(e))
-
+            messagebox.showerror("Błąd", str(e), parent=self)
     def on_delete(self):
         if not self.var_id.get():
             messagebox.showwarning("Walidacja", "Wybierz rekord do usunięcia.")
@@ -302,7 +481,7 @@ class OrganizationCrud(tk.Toplevel):
         self.var_org3.set(values[6])   # PESEL
         self.var_bank.set(values[9])
 
-        # Odtwórz comboboxy na podstawie ukrytych ID (po kolumnie Źródło)
+        # Odtwórz adresy na podstawie ukrytych ID (po kolumnie Źródło)
         addr_id = values[11]
         add_addr_id = values[12]
 
@@ -315,15 +494,21 @@ class OrganizationCrud(tk.Toplevel):
         except Exception:
             add_addr_id = None
 
-        self.var_addr.set(self._label_by_addr.get(addr_id, "") if addr_id is not None else "")
-        self.var_add_addr.set(self._label_by_addr.get(add_addr_id, "") if add_addr_id is not None else "")
+        self.var_add_addr.set(
+            self._label_by_addr.get(add_addr_id, "") if add_addr_id is not None else ""
+        )
+        if addr_id is not None:
+            self._fill_address_fields_from_row(get_address_by_id(addr_id))
+        else:
+            self._editing_addr_id = None
+            self._clear_address_fields()
 
     def on_import_ceidg(self):
         raw = (self.var_org1.get() or "").strip()
         if not raw:
             raw = simpledialog.askstring(
                 "NIP",
-                "Podaj NIP (10 cyfr) do zapytania w Hurtowni danych CEIDG:",
+                "Podaj NIP (10 cyfr) — najpierw CEIDG, przy braku danych fallback GUS (REGON):",
                 parent=self,
             )
             if not raw:
@@ -336,12 +521,16 @@ class OrganizationCrud(tk.Toplevel):
             messagebox.showwarning("NIP", str(e), parent=self)
             return
 
-        if not get_ceidg_hd_token():
+        has_ceidg = bool(get_ceidg_hd_token())
+        has_gus = bool(get_gus_bir_key())
+        if not has_ceidg and not has_gus:
             messagebox.showwarning(
-                "Token API",
-                "Brak tokenu Hurtowni danych CEIDG.\n\n"
-                "W menu głównym: Plik → Ustawienia integracji… — pole token CEIDG, "
-                "lub zmienna środowiskowa CEIDG_HD_API_TOKEN (JWT z https://dane.biznes.gov.pl/).",
+                "Token / klucz API",
+                "Brak tokenu CEIDG i klucza GUS BIR.\n\n"
+                "W menu: Plik → Ustawienia integracji… — ustaw token CEIDG "
+                "(JWT z https://dane.biznes.gov.pl/) i/lub klucz GUS "
+                "(https://api.stat.gov.pl/Home/RegonApi),\n"
+                "albo zmienne CEIDG_HD_API_TOKEN / GUS_BIR_API_KEY.",
                 parent=self,
             )
             return
@@ -350,35 +539,83 @@ class OrganizationCrud(tk.Toplevel):
 
         def work():
             try:
-                ceidg_debug(f"import organizacji: zapytanie po NIP {nip_query!r}")
-                firma = fetch_firma_by_nip(nip_query)
-                flat = flat_firma_for_org(firma)
+                flat = None
+                source = RECORD_SOURCE_CEIDG_IMPORT
+                if has_ceidg:
+                    try:
+                        ceidg_debug(f"import organizacji: zapytanie CEIDG po NIP {nip_query!r}")
+                        firma = fetch_firma_by_nip(nip_query)
+                        flat = flat_firma_for_org(firma)
+                        source = RECORD_SOURCE_CEIDG_IMPORT
+                    except CeidgNoDataError as e:
+                        ceidg_debug(f"brak w CEIDG — fallback GUS: {e}")
+                        flat = None
+                    except CeidgHdError as e:
+                        self.after(
+                            0,
+                            lambda m=str(e): messagebox.showerror("CEIDG", m, parent=self),
+                        )
+                        return
+
+                if flat is None:
+                    if not has_gus:
+                        self.after(
+                            0,
+                            lambda: messagebox.showinfo(
+                                "CEIDG / GUS",
+                                "Nie znaleziono danych w CEIDG, a klucz GUS BIR nie jest ustawiony.\n\n"
+                                "Dodaj klucz w Plik → Ustawienia integracji… (GUS_BIR_API_KEY).",
+                                parent=self,
+                            ),
+                        )
+                        return
+                    try:
+                        gus_debug(f"import organizacji: zapytanie GUS po NIP {nip_query!r}")
+                        podmiot = fetch_podmiot_by_nip(nip_query)
+                        flat = flat_podmiot_for_org(podmiot)
+                        source = RECORD_SOURCE_GUS_IMPORT
+                    except GusNoDataError as e:
+                        self.after(
+                            0,
+                            lambda m=str(e): messagebox.showinfo("CEIDG / GUS", m, parent=self),
+                        )
+                        return
+                    except GusBirError as e:
+                        self.after(
+                            0,
+                            lambda m=str(e): messagebox.showerror("GUS", m, parent=self),
+                        )
+                        return
+
                 _parts = [
                     f"{k}={flat.get(k)!r}"
                     for k in ("name", "org_nip", "city")
                     if flat.get(k)
                 ]
                 if _parts:
-                    ceidg_debug("spłaszczone pola: " + ", ".join(_parts))
-                self.after(0, lambda: self._apply_ceidg_import(flat))
-            except CeidgNoDataError as e:
-                self.after(0, lambda m=str(e): messagebox.showinfo("CEIDG", m, parent=self))
-            except CeidgHdError as e:
-                self.after(0, lambda m=str(e): messagebox.showerror("CEIDG", m, parent=self))
+                    (ceidg_debug if source == RECORD_SOURCE_CEIDG_IMPORT else gus_debug)(
+                        "spłaszczone pola: " + ", ".join(_parts)
+                    )
+                self.after(0, lambda f=flat, s=source: self._apply_registry_import(f, s))
             except Exception as e:
-                self.after(0, lambda m=str(e): messagebox.showerror("CEIDG", m, parent=self))
+                self.after(
+                    0,
+                    lambda m=str(e): messagebox.showerror("Import", m, parent=self),
+                )
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _apply_ceidg_import(self, flat: dict):
+    def _apply_registry_import(self, flat: dict, source: str = RECORD_SOURCE_CEIDG_IMPORT):
         """Uzupełnia puste pola formularza i — jeśli jest zapisany rekord — puste pola w bazie."""
+        src_label = "GUS (REGON)" if source == RECORD_SOURCE_GUS_IMPORT else "Hurtowni CEIDG"
         snap = self._snapshot_org_form_for_ceidg()
         self._merge_ceidg_into_form(flat)
         vid = (self.var_id.get() or "").strip()
         if not vid:
             messagebox.showinfo(
-                "CEIDG",
-                "Uzupełniono brakujące pola w formularzu. Kliknij „Dodaj”, aby zapisać nową organizację.",
+                "Import",
+                f"Uzupełniono brakujące pola z {src_label}. "
+                "Kliknij „Dodaj”, aby zapisać nową organizację.",
                 parent=self,
             )
             return
@@ -387,8 +624,9 @@ class OrganizationCrud(tk.Toplevel):
         except ValueError:
             return
 
-        did_db = self._merge_ceidg_into_db(oid, flat, snap)
-        ceidg_debug(f"zapis do bazy po imporcie: OrganizationId={oid}, wykonano UPDATE={'tak' if did_db else 'nie'}")
+        did_db = self._merge_ceidg_into_db(oid, flat, snap, source=source)
+        log = gus_debug if source == RECORD_SOURCE_GUS_IMPORT else ceidg_debug
+        log(f"zapis do bazy po imporcie: OrganizationId={oid}, wykonano UPDATE={'tak' if did_db else 'nie'}")
         self._load_lookups()
         self.refresh_table()
         for item in self.tree.get_children():
@@ -402,13 +640,13 @@ class OrganizationCrud(tk.Toplevel):
 
         if did_db:
             messagebox.showinfo(
-                "CEIDG",
-                "Uzupełniono brakujące dane z Hurtowni CEIDG (zapis w bazie).",
+                "Import",
+                f"Uzupełniono brakujące dane z {src_label} (zapis w bazie).",
                 parent=self,
             )
         else:
             messagebox.showinfo(
-                "CEIDG",
+                "Import",
                 "W bazie nie było pustych pól do uzupełnienia. "
                 "Formularz uzupełniono tylko tam, gdzie pola były puste.",
                 parent=self,
@@ -454,12 +692,19 @@ class OrganizationCrud(tk.Toplevel):
         set_if_empty(self.var_email, flat.get("email"))
         set_if_empty(self.var_org1, flat.get("org_nip"))
         set_if_empty(self.var_org2, flat.get("org_regon"))
+        set_if_empty(self.var_street, flat.get("street_name"))
+        set_if_empty(self.var_street_no, flat.get("street_number"))
+        set_if_empty(self.var_zip, flat.get("zip_code"))
+        set_if_empty(self.var_city, flat.get("city"))
+        set_if_empty(self.var_country, flat.get("country"))
 
     def _merge_ceidg_into_db(
         self,
         org_id: int,
         flat: dict,
         snap: dict[str, str],
+        *,
+        source: str = RECORD_SOURCE_CEIDG_IMPORT,
     ) -> bool:
         """Zwraca True, jeśli wykonano UPDATE w bazie."""
         org = get_organization_by_id(org_id)
@@ -497,7 +742,7 @@ class OrganizationCrud(tk.Toplevel):
                     addr_updates[ukw] = m
 
         if should_tag and (org_updates or addr_updates):
-            org_updates["RecordSource"] = RECORD_SOURCE_CEIDG_IMPORT
+            org_updates["RecordSource"] = source
 
         did = False
         if addr_updates:

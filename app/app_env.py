@@ -14,6 +14,11 @@ DEFAULT_KSEF_TEST_BASE_URL = "https://api-test.ksef.mf.gov.pl/v2"
 DEFAULT_KSEF_PRODUCTION_BASE_URL = "https://api.ksef.mf.gov.pl/v2"
 # Hurtownia danych CEIDG — OpenAPI „API HD v3” (servers.url w API HD v3.json)
 DEFAULT_CEIDG_HD_API_BASE = "https://dane.biznes.gov.pl/api/ceidg/v3"
+# GUS BIR 1.1 (REGON) — produkcja / test
+DEFAULT_GUS_BIR_API_BASE = "https://wyszukiwarkaregon.stat.gov.pl/wsBIR/UslugaBIRzewnPubl.svc"
+DEFAULT_GUS_BIR_API_BASE_TEST = (
+    "https://wyszukiwarkaregontest.stat.gov.pl/wsBIR/UslugaBIRzewnPubl.svc"
+)
 
 
 class AppEnvironment(str, Enum):
@@ -137,6 +142,9 @@ def _migrate_legacy_integration(data: dict[str, Any]) -> bool:
             "ceidg_hd_api_token",
             "ceidg_hd_api_base",
             "ceidg_debug",
+            "gus_bir_api_key",
+            "gus_bir_api_base",
+            "gus_debug",
         )
     ):
         return False
@@ -178,6 +186,9 @@ def _normalize_integration_block(r: dict[str, Any]) -> dict[str, Any]:
         "ceidg_hd_api_token": str(r.get("ceidg_hd_api_token") or ""),
         "ceidg_hd_api_base": str(r.get("ceidg_hd_api_base") or ""),
         "ceidg_debug": bool(r.get("ceidg_debug")) if "ceidg_debug" in r else False,
+        "gus_bir_api_key": str(r.get("gus_bir_api_key") or ""),
+        "gus_bir_api_base": str(r.get("gus_bir_api_base") or ""),
+        "gus_debug": bool(r.get("gus_debug")) if "gus_debug" in r else False,
     }
 
 
@@ -204,6 +215,9 @@ def _clean_integration_dict(integration: dict[str, Any]) -> dict[str, Any]:
         "ceidg_hd_api_token": str(integration.get("ceidg_hd_api_token") or ""),
         "ceidg_hd_api_base": str(integration.get("ceidg_hd_api_base") or ""),
         "ceidg_debug": bool(integration.get("ceidg_debug")),
+        "gus_bir_api_key": str(integration.get("gus_bir_api_key") or ""),
+        "gus_bir_api_base": str(integration.get("gus_bir_api_base") or ""),
+        "gus_debug": bool(integration.get("gus_debug")),
     }
 
 
@@ -324,3 +338,31 @@ def get_ceidg_debug() -> bool:
     if raw is not None and str(raw).strip() != "":
         return str(raw).strip().lower() in ("1", "true", "yes", "on")
     return bool(get_integration_dict().get("ceidg_debug"))
+
+
+def get_gus_bir_api_key() -> str:
+    for key in ("GUS_BIR_API_KEY", "GUS_REGON_API_KEY", "BIR_API_KEY"):
+        v = (os.getenv(key) or "").strip()
+        if v:
+            return v
+    return (get_integration_dict().get("gus_bir_api_key") or "").strip()
+
+
+def get_gus_bir_api_base() -> str:
+    v = (os.getenv("GUS_BIR_API_BASE") or "").strip()
+    if v:
+        return v.rstrip("/")
+    f = (get_integration_dict().get("gus_bir_api_base") or "").strip()
+    if f:
+        return f.rstrip("/")
+    if get_environment() == AppEnvironment.TEST:
+        return DEFAULT_GUS_BIR_API_BASE_TEST.rstrip("/")
+    return DEFAULT_GUS_BIR_API_BASE.rstrip("/")
+
+
+def get_gus_debug() -> bool:
+    """Logi [GUS] na konsoli — GUS_DEBUG=1 lub ustawienia (checkbox)."""
+    raw = os.getenv("GUS_DEBUG")
+    if raw is not None and str(raw).strip() != "":
+        return str(raw).strip().lower() in ("1", "true", "yes", "on")
+    return bool(get_integration_dict().get("gus_debug"))
