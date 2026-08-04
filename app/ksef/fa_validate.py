@@ -1,22 +1,22 @@
 """
-Walidacja danych faktury przed wysyłką do KSeF (FA(2)).
+Walidacja danych faktury przed wysyłką do KSeF (FA(3)).
 
 Opiera się na:
 - dokumentacji KSeF (m.in. weryfikacja faktury, limity rozmiaru),
 - regułach unikalności dokumentu (NIP sprzedawcy + RodzajFaktury + P_2),
 - poprawności NIP (suma kontrolna — dla PL),
-- polach wymaganych przez generator XML (zgodnie ze schematem logicznym FA(2)).
+- polach wymaganych przez generator XML (FA(3)).
 
-Szczegółowe wymagania XSD: schemat FA(2) publikowany przez MF / repozytorium ksef-docs.
+Szczegółowe wymagania XSD: schemat FA(3) publikowany przez MF / CRWDE.
 """
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from .fa_xml import compute_fa2_lines
+from .fa_xml import _normalize_bank_account, compute_fa2_lines
 from .online_send import is_valid_ksef_number_format
 
 # Limit rozmiaru faktury bez załączników (KSeF — dokumentacja integracyjna).
@@ -56,7 +56,7 @@ def _nonempty_str(x: Any, label: str, errors: list[str], *, max_len: int | None 
         errors.append(f"Brak lub pusty: {label}.")
         return None
     if max_len is not None and len(s) > max_len:
-        errors.append(f"{label}: przekroczono limit {max_len} znaków (FA(2)).")
+        errors.append(f"{label}: przekroczono limit {max_len} znaków (FA).")
         return None
     return s
 
@@ -68,8 +68,11 @@ def validate_invoice_for_ksef(
     env_nip: str | None = None,
 ) -> None:
     """
-    Sprawdza dane przed złożeniem FA(2) do KSeF.
+    Sprawdza dane przed złożeniem FA(3) do KSeF.
     Przy błędach rzuca ValueError z listą punktów (po polsku).
+
+    KOR bez pozycji — dozwolona (korekta formalna, np. rachunek bankowy).
+    Każda faktura sprzedażowa (VAT i KOR) wymaga konta sprzedawcy.
     """
     errors: list[str] = []
 
@@ -99,7 +102,47 @@ def validate_invoice_for_ksef(
                 )
 
     if not details:
-        errors.append("Faktura musi mieć co najmniej jedną pozycję.")
+        if not is_kor:
+            errors.append("Faktura musi mieć co najmniej jedną pozycję.")
+        elif not (str(header.get("CorrectionReason") or "")).strip():
+            errors.append(
+                "Korekta bez pozycji (formalna): uzupełnij „Przyczyna korekty” "
+                "(np. uzupełnienie numeru rachunku bankowego)."
+            )
+    else:
+        for i, row in enumerate(details, start=1):
+            try:
+                q = Decimal(str(row.get("Quantity")))
+            except Exception:
+                errors.append(f"Pozycja {i}: niepoprawna ilość (Quantity).")
+                continue
+            if not is_kor:
+                if q <= 0:
+                    errors.append(f"Pozycja {i}: ilość musi być większa od zera (FA: P_8B).")
+            else:
+                if q == 0:
+                    errors.append(f"Pozycja {i}: dla korekty ilość (różnica) nie może być zerowa.")
+            try:
+                p = Decimal(str(row.get("UnitPrice")))
+            except Exception:
+                errors.append(f"Pozycja {i}: niepoprawna cena jednostkowa (UnitPrice).")
+                continue
+            if not is_kor and p < 0:
+                errors.append(f"Pozycja {i}: cena jednostkowa nie może być ujemna.")
+            svc = (str(row.get("ServiceName") or "")).strip()
+            if not svc:
+                errors.append(f"Pozycja {i}: brak nazwy towaru/usługi (P_7).")
+            try:
+                float(row.get("TaxValue"))
+            except (TypeError, ValueError):
+                errors.append(f"Pozycja {i}: niepoprawna stawka VAT (TaxValue).")
+
+    if not _normalize_bank_account(header.get("CoBankAccountNbr")):
+        errors.append(
+            "Brak numeru konta bankowego sprzedawcy (Organization.BankAccountNbr). "
+            "Uzupełnij konto w Encje → Organizacje (sprzedawca) — wymagane przy wysyłce sprzedaży do KSeF "
+            "(10–34 znaków, NRB/IBAN bez spacji)."
+        )
 
     _nonempty_str(
         header.get("Name"),
@@ -163,43 +206,31 @@ def validate_invoice_for_ksef(
                 "w FA wymagany jest adres (AdresL1 / AdresL2)."
             )
 
-    _check_addr("Adres sprzedawcy", header.get("CoStreet"), header.get("CoZip"), header.get("CoCity"), header.get("CoCountry"))
-    _check_addr("Adres nabywcy", header.get("CuStreet"), header.get("CuZip"), header.get("CuCity"), header.get("CuCountry"))
-
-    for i, row in enumerate(details, start=1):
-        try:
-            q = Decimal(str(row.get("Quantity")))
-        except Exception:
-            errors.append(f"Pozycja {i}: niepoprawna ilość (Quantity).")
-            continue
-        if not is_kor:
-            if q <= 0:
-                errors.append(f"Pozycja {i}: ilość musi być większa od zera (FA: P_8B).")
-        else:
-            if q == 0:
-                errors.append(f"Pozycja {i}: dla korekty ilość (różnica) nie może być zerowa.")
-        try:
-            p = Decimal(str(row.get("UnitPrice")))
-        except Exception:
-            errors.append(f"Pozycja {i}: niepoprawna cena jednostkowa (UnitPrice).")
-            continue
-        if not is_kor and p < 0:
-            errors.append(f"Pozycja {i}: cena jednostkowa nie może być ujemna.")
-        svc = (str(row.get("ServiceName") or "")).strip()
-        if not svc:
-            errors.append(f"Pozycja {i}: brak nazwy towaru/usługi (P_7).")
-        try:
-            float(row.get("TaxValue"))
-        except (TypeError, ValueError):
-            errors.append(f"Pozycja {i}: niepoprawna stawka VAT (TaxValue).")
+    _check_addr(
+        "Adres sprzedawcy",
+        header.get("CoStreet"),
+        header.get("CoZip"),
+        header.get("CoCity"),
+        header.get("CoCountry"),
+    )
+    _check_addr(
+        "Adres nabywcy",
+        header.get("CuStreet"),
+        header.get("CuZip"),
+        header.get("CuCity"),
+        header.get("CuCountry"),
+    )
 
     if errors:
-        raise ValueError("Nie można wysłać faktury do KSeF — popraw dane:\n" + "\n".join(f"• {e}" for e in errors))
+        raise ValueError(
+            "Nie można wysłać faktury do KSeF — popraw dane:\n"
+            + "\n".join(f"• {e}" for e in errors)
+        )
 
     try:
         compute_fa2_lines(header, details)
     except ValueError as e:
-        raise ValueError("Nie można zbudować FA(2):\n" + str(e)) from e
+        raise ValueError("Nie można zbudować FA(3):\n" + str(e)) from e
 
 
 def _country_code_for_validate(s: str | None) -> str:
@@ -216,5 +247,6 @@ def validate_xml_size_fits_ksef(xml_bytes: bytes) -> None:
     n = len(xml_bytes)
     if n > MAX_INVOICE_BYTES:
         raise ValueError(
-            f"Wygenerowany XML ma {n} bajtów — limit KSeF dla faktury bez załączników to {MAX_INVOICE_BYTES} bajtów (1 MB)."
+            f"Wygenerowany XML ma {n} bajtów — limit KSeF dla faktury bez załączników to "
+            f"{MAX_INVOICE_BYTES} bajtów (1 MB)."
         )

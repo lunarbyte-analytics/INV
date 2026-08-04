@@ -83,6 +83,60 @@ def _xml_escape_text(text: str) -> str:
     )
 
 
+def _normalize_bank_account(s: str | None) -> str | None:
+    """Numer rachunku do TNrRB (10–34 zn.): bez spacji/myślników; PL IBAN zostaje z prefiksem."""
+    if not s:
+        return None
+    n = re.sub(r"[\s\-]", "", str(s).strip())
+    if not n:
+        return None
+    if n[:2].isalpha():
+        n = n[:2].upper() + n[2:]
+    if len(n) < 10 or len(n) > 34:
+        return None
+    return n
+
+
+def _forma_platnosci_code(payment_name: str | None) -> str:
+    """Mapowanie nazwy metody płatności z INV → TFormaPlatnosci (1–7)."""
+    n = (payment_name or "").casefold()
+    if "gotów" in n or "gotow" in n:
+        return "1"
+    if "kart" in n:
+        return "2"
+    if "bon" in n:
+        return "3"
+    if "czek" in n:
+        return "4"
+    if "kredyt" in n:
+        return "5"
+    if "blik" in n or "mobil" in n:
+        return "7"
+    return "6"  # przelew (domyślnie)
+
+
+def _emit_platnosc(fa: ET.Element, header: dict) -> None:
+    """
+    Fa/Platnosc — fakultatywne; gdy jest konto sprzedawcy, wysyłamy NrRB (+ forma i termin).
+    """
+    bank = _normalize_bank_account(header.get("CoBankAccountNbr"))
+    if not bank:
+        return
+
+    plat = ET.SubElement(fa, Q("Platnosc"))
+    pay_date = _date_iso(header.get("PaymentDate")) if header.get("PaymentDate") else None
+    if pay_date:
+        tp = ET.SubElement(plat, Q("TerminPlatnosci"))
+        ET.SubElement(tp, Q("Termin")).text = pay_date
+
+    ET.SubElement(plat, Q("FormaPlatnosci")).text = _forma_platnosci_code(
+        header.get("PaymentName")
+    )
+
+    rb = ET.SubElement(plat, Q("RachunekBankowy"))
+    ET.SubElement(rb, Q("NrRB")).text = bank
+
+
 def invoice_header_is_kor(header: dict) -> bool:
     """Faktura korygująca — RodzajFaktury KOR."""
     return "korekt" in (header.get("TypeName") or "").lower()
@@ -104,11 +158,9 @@ def compute_fa_lines(
     """
     Oblicza pozycje i sumy wg reguł FA (te same co w XML).
     Dla faktury korygującej (KOR) kwoty w pozycjach i sumach to różnice (mogą być ujemne).
+    KOR bez pozycji (korekta formalna, np. rachunek) — puste wiersze, P_15 = 0.
     Zwraca: lines_calc, suma brutto (P_15), agregacja stawek, NIP sprzedawcy, NIP nabywcy, is_kor.
     """
-    if not details:
-        raise ValueError("Faktura nie ma pozycji — brak danych do wysyłki KSeF.")
-
     is_kor = invoice_header_is_kor(header)
 
     nip_sprzed = _nip_digits(header.get("CoNIP"))
@@ -119,8 +171,6 @@ def compute_fa_lines(
     if len(nip_naby) != 10:
         raise ValueError("Nabywca musi mieć poprawny NIP (10 cyfr).")
 
-    gross_sum = Decimal("0")
-
     agg: dict[str, tuple[Decimal, Decimal]] = {
         "23": (Decimal("0"), Decimal("0")),
         "8": (Decimal("0"), Decimal("0")),
@@ -128,6 +178,12 @@ def compute_fa_lines(
         "0": (Decimal("0"), Decimal("0")),
     }
 
+    if not details:
+        if not is_kor:
+            raise ValueError("Faktura nie ma pozycji — brak danych do wysyłki KSeF.")
+        return [], Decimal("0"), agg, nip_sprzed, nip_naby, is_kor
+
+    gross_sum = Decimal("0")
     lines_calc: list[dict] = []
     for d in details:
         qty = Decimal(str(d["Quantity"]))
@@ -314,6 +370,8 @@ def build_fa3_invoice_xml(header: dict, details: list[dict]) -> str:
         ET.SubElement(fw, Q("P_9A")).text = _q8(ln["price_net"])
         ET.SubElement(fw, Q("P_11")).text = _q2(ln["line_net"])
         ET.SubElement(fw, Q("P_12")).text = ln["stawka"]
+
+    _emit_platnosc(fa, header)
 
     buf = BytesIO()
     tree = ET.ElementTree(root)
